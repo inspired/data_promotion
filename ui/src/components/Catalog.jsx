@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import Badge from '@splunk/react-ui/Badge';
 import Link from '@splunk/react-ui/Link';
 import Paginator from '@splunk/react-ui/Paginator';
 import Search from '@splunk/react-ui/Search';
@@ -7,6 +6,7 @@ import Table from '@splunk/react-ui/Table';
 import Typography from '@splunk/react-ui/Typography';
 import { formatBytes, formatCount, formatEpochShort, paginate } from '../lib/replay';
 import { Field, Row, Stack } from './Layout';
+import { AgentStatus } from './Status';
 
 const PAGE_SIZE = 50;
 
@@ -69,7 +69,7 @@ function DataTable({ rows, columns, rowKey, filterKeys, filterPlaceholder, empty
             {filtered.length === 0 ? (
                 <Typography as="p" color="muted">{rows.length ? 'Nothing matches the filter.' : emptyText}</Typography>
             ) : (
-                <Table stripeRows headType="docked">
+                <Table headType="docked">
                     <Table.Head>
                         {columns.map((c) => (
                             <Table.HeadCell
@@ -116,7 +116,7 @@ const partitionColumns = (onPick) => [
         label: 'Day (UTC)',
         render: (r) => <Link to="#" onClick={(e) => { e.preventDefault(); onPick(r.sourcetype, r.day); }}>{r.day}</Link>,
     },
-    { key: 'forwarders', label: 'Forwarders', align: 'right', render: (r) => formatCount(r.forwarders) },
+    { key: 'forwarders', label: 'Agents', align: 'right', render: (r) => formatCount(r.forwarders) },
     { key: 'files', label: 'Files', align: 'right', render: (r) => formatCount(r.files) },
     { key: 'bytes', label: 'Size', align: 'right', render: (r) => formatBytes(r.bytes) },
     { key: 'earliest', label: 'First hour', render: (r) => formatEpochShort(r.earliest) },
@@ -125,25 +125,16 @@ const partitionColumns = (onPick) => [
 
 const mono = (v) => <Typography as="span" variant="monoSmallBody">{v}</Typography>;
 
-const FORWARDER_STATUS = {
-    reporting: { label: 'Reporting', type: 'notificationPositive' },
-    stale: { label: 'Not reporting', type: 'notificationCaution' },
-    unregistered: { label: 'Not registered', type: undefined },
-};
-
 const FORWARDER_COLUMNS = [
     {
         key: 'hostname',
-        label: 'Forwarder',
+        label: 'Agent',
         render: (r) => r.hostname || <Typography as="span" color="muted">Name unknown</Typography>,
     },
     {
         key: 'status',
         label: 'Status',
-        render: (r) => {
-            const s = FORWARDER_STATUS[r.status] || FORWARDER_STATUS.unregistered;
-            return <Badge label={s.label} type={s.type} />;
-        },
+        render: (r) => <AgentStatus status={r.status} />,
     },
     { key: 'guid', label: 'Server GUID', render: (r) => mono(r.guid) },
     {
@@ -184,7 +175,7 @@ export function PartitionsTable({ rows, onPick }) {
             rowKey={(r) => r._key || `${r.sourcetype}|${r.day}`}
             filterKeys={['sourcetype', 'day']}
             filterPlaceholder="Filter by sourcetype or day"
-            emptyText="No forwarder has published its catalog yet."
+            emptyText="No agent has published its catalog yet."
             summary={(n) => `${formatCount(n)} partitions · times in UTC · catalog updated ${ago(updated)} · click a sourcetype or day to replay it on a timeline`}
             initialSort={{ key: 'day', dir: 'desc' }}
         />
@@ -200,10 +191,10 @@ export function ForwardersTable({ forwarders }) {
             rowKey={(r) => r.guid}
             filterKeys={['hostname', 'guid', 'version']}
             filterPlaceholder="Filter by name, GUID or version"
-            emptyText="No forwarder has registered yet. Install TA-replay_agent on the forwarders."
+            emptyText="No agent has registered yet. Install TA-replay_agent on the Heavy Forwarders."
             summary={(n) => {
                 const stale = forwarders.filter((f) => f.status !== 'reporting').length;
-                return `${formatCount(n)} forwarders${stale ? ` · ${formatCount(stale)} not reporting` : ''} · times in UTC`;
+                return `${formatCount(n)} agents${stale ? ` · ${formatCount(stale)} not reporting` : ''} · times in UTC`;
             }}
             initialSort={{ key: 'hostname', dir: 'asc' }}
         />

@@ -36,7 +36,7 @@ export function ForwarderPicker({ forwarders, values, onChange }) {
             inline={false}
             style={{ width: '100%' }}
             values={values}
-            placeholder={`All forwarders (${formatCount(forwarders.length)})`}
+            placeholder={`All agents (${formatCount(forwarders.length)})`}
             controlledFilter
             onFilterChange={(e, { keyword: k }) => setKeyword(k)}
             onChange={(e, { values: v }) => onChange(v)}
@@ -99,8 +99,8 @@ export default function NewReplay({ catalog, forwarders, onSubmitted, onOpenTime
     const forwarderHelp = !sourcetype
         ? 'Pick a sourcetype first.'
         : selected.length
-            ? `${formatCount(selected.length)} of ${formatCount(candidates.length)} forwarders selected.`
-            : `All ${formatCount(candidates.length)} forwarders that wrote ${sourcetype}.`;
+            ? `${formatCount(selected.length)} of ${formatCount(candidates.length)} agents selected.`
+            : `All ${formatCount(candidates.length)} agents that wrote ${sourcetype}.`;
 
     return (
         <Card>
@@ -156,7 +156,7 @@ export default function NewReplay({ catalog, forwarders, onSubmitted, onOpenTime
                     </Row>
                     <Row>
                         <Field $flex="3 1 360px">
-                            <ControlGroup label="Forwarders" labelPosition="top" help={forwarderHelp}>
+                            <ControlGroup label="Agents" labelPosition="top" help={forwarderHelp}>
                                 <ForwarderPicker forwarders={candidates} values={selected} onChange={setSelected} />
                             </ControlGroup>
                         </Field>

@@ -75,7 +75,7 @@ export function submitSearch(sourcetype, indexFilter, forwarders = []) {
     if (ie) throw new Error(ie);
     const guids = parseForwarders(forwarders);
     const bad = guids.filter((g) => !isValidGuid(g));
-    if (bad.length) throw new Error(`Invalid forwarder GUID: ${bad[0]}`);
+    if (bad.length) throw new Error(`Invalid agent GUID: ${bad[0]}`);
     const fwd = guids.length ? guids.join(' ') : '*';
     return `| \`replay_submit(${sourcetype}, ${idx}, ${fwd})\``;
 }
@@ -87,37 +87,50 @@ export function verifySearch(jobId) {
 }
 
 /**
- * Job status -> Badge. Design System notification families: info while work is in
- * progress, positive / caution / negative for outcomes, no type (neutral) for waiting
- * or withdrawn.
+ * Job status -> status indicator (icon + text, the Design System table pattern).
+ * tone: positive / warning / negative / info (work in progress) / neutral (waiting or
+ * withdrawn). Color is never the only signal: every status also has its own icon and label.
  */
 export const STATUS = {
-    pending: { label: 'Pending', badge: undefined, active: true },
-    running: { label: 'Running', badge: 'notificationInfo', active: true },
-    staged: { label: 'Staged', badge: 'notificationInfo', active: true },
-    indexing: { label: 'Indexing', badge: 'notificationInfo', active: true },
-    completed: { label: 'Completed', badge: 'notificationPositive', active: false },
-    incomplete: { label: 'Incomplete', badge: 'notificationCaution', active: false },
-    cancel_requested: { label: 'Cancelling', badge: 'notificationCaution', active: true },
-    cancelled: { label: 'Cancelled', badge: undefined, active: false },
-    failed: { label: 'Failed', badge: 'notificationNegative', active: false },
-    rejected: { label: 'Rejected', badge: 'notificationNegative', active: false },
+    pending: { label: 'Pending', tone: 'neutral', icon: 'waiting', active: true },
+    running: { label: 'Running', tone: 'info', icon: 'progress', active: true },
+    staged: { label: 'Staged', tone: 'info', icon: 'progress', active: true },
+    indexing: { label: 'Indexing', tone: 'info', icon: 'progress', active: true },
+    completed: { label: 'Completed', tone: 'positive', icon: 'ok', active: false },
+    incomplete: { label: 'Incomplete', tone: 'warning', icon: 'warning', active: false },
+    cancel_requested: { label: 'Cancelling', tone: 'warning', icon: 'stopped', active: true },
+    cancelled: { label: 'Cancelled', tone: 'neutral', icon: 'stopped', active: false },
+    failed: { label: 'Failed', tone: 'negative', icon: 'error', active: false },
+    rejected: { label: 'Rejected', tone: 'negative', icon: 'error', active: false },
 };
 
 /** An agent's share of a job (replay_tasks). */
 export const TASK_STATUS = {
-    running: { label: 'Running', badge: 'notificationInfo' },
-    done: { label: 'Done', badge: 'notificationPositive' },
-    failed: { label: 'Failed', badge: 'notificationNegative' },
-    cancelled: { label: 'Cancelled', badge: undefined },
+    running: { label: 'Running', tone: 'info', icon: 'progress' },
+    done: { label: 'Done', tone: 'positive', icon: 'ok' },
+    failed: { label: 'Failed', tone: 'negative', icon: 'error' },
+    cancelled: { label: 'Cancelled', tone: 'neutral', icon: 'stopped' },
 };
 
+/** Agent heartbeat state (buildForwarders status). */
+export const AGENT_STATUS = {
+    reporting: { label: 'Reporting', tone: 'positive', icon: 'ok' },
+    stale: { label: 'Not reporting', tone: 'warning', icon: 'warning' },
+    unregistered: { label: 'Not registered', tone: 'neutral', icon: 'unknown' },
+};
+
+const UNKNOWN = (status) => ({ label: status || 'Unknown', tone: 'neutral', icon: 'unknown', active: false });
+
 export function statusMeta(status) {
-    return STATUS[status] || { label: status || 'Unknown', badge: undefined, active: false };
+    return STATUS[status] || UNKNOWN(status);
 }
 
 export function taskStatusMeta(status) {
-    return TASK_STATUS[status] || { label: status || 'Unknown', badge: undefined };
+    return TASK_STATUS[status] || UNKNOWN(status);
+}
+
+export function agentStatusMeta(status) {
+    return AGENT_STATUS[status] || AGENT_STATUS.unregistered;
 }
 
 export function canCancel(job) {
@@ -329,7 +342,7 @@ export function resolveColorScheme(theme, prefersDark = () => (
 /** Short description of a job's forwarder selection. */
 export function describeForwarders(job, nameByGuid = {}) {
     const guids = parseForwarders(job && job.forwarders);
-    if (!guids.length) return 'All forwarders';
+    if (!guids.length) return 'All agents';
     if (guids.length === 1) return nameByGuid[guids[0]] || guids[0];
-    return `${guids.length} forwarders`;
+    return `${guids.length} agents`;
 }

@@ -58,7 +58,7 @@ describe('validation and SPL builders', () => {
         expect(submitSearch('splunkd', '', [])).toBe('| `replay_submit(splunkd, *, *)`');
         expect(submitSearch('splunkd', '*', [G1.toLowerCase(), G2]))
             .toBe(`| \`replay_submit(splunkd, *, ${G1} ${G2})\``);
-        expect(() => submitSearch('splunkd', '*', ['x) | delete'])).toThrow(/Invalid forwarder/);
+        expect(() => submitSearch('splunkd', '*', ['x) | delete'])).toThrow(/Invalid agent/);
         expect(() => submitSearch('bad st', '*')).toThrow();
         expect(() => submitSearch('splunkd', 'x,y')).toThrow();
     });
@@ -191,9 +191,9 @@ describe('forwarders', () => {
     test('parse and describe', () => {
         expect(parseForwarders('*')).toEqual([]);
         expect(parseForwarders(`${G1.toLowerCase()} ${G2}`)).toEqual([G1, G2]);
-        expect(describeForwarders({ forwarders: '*' })).toBe('All forwarders');
+        expect(describeForwarders({ forwarders: '*' })).toBe('All agents');
         expect(describeForwarders({ forwarders: G1 }, { [G1]: 'splunk1' })).toBe('splunk1');
-        expect(describeForwarders({ forwarders: `${G1} ${G2}` })).toBe('2 forwarders');
+        expect(describeForwarders({ forwarders: `${G1} ${G2}` })).toBe('2 agents');
     });
 
     test('paginate clamps the page', () => {
@@ -201,4 +201,17 @@ describe('forwarders', () => {
         expect(paginate([1, 2, 3], 9, 2)).toEqual({ current: 2, totalPages: 2, rows: [3] });
         expect(paginate([], 1, 25)).toEqual({ current: 1, totalPages: 1, rows: [] });
     });
+});
+
+test('every status has a tone, an icon and a label', () => {
+    // eslint-disable-next-line global-require
+    const { STATUS, TASK_STATUS, AGENT_STATUS, statusMeta, agentStatusMeta } = require('./replay');
+    const tones = new Set(['positive', 'warning', 'negative', 'info', 'neutral']);
+    [STATUS, TASK_STATUS, AGENT_STATUS].forEach((map) => Object.values(map).forEach((m) => {
+        expect(tones.has(m.tone)).toBe(true);
+        expect(m.icon).toBeTruthy();
+        expect(m.label).toBeTruthy();
+    }));
+    expect(statusMeta('weird')).toMatchObject({ label: 'weird', tone: 'neutral' });
+    expect(agentStatusMeta(undefined).label).toBe('Not registered');
 });

@@ -5,6 +5,7 @@ import ButtonGroup from '@splunk/react-ui/ButtonGroup';
 import Typography from '@splunk/react-ui/Typography';
 import { variables } from '@splunk/themes';
 import { formatBytes, formatCount, statusMeta } from '../lib/replay';
+import { TONE_COLOR } from './Status';
 import {
     DAY, HOUR, floorTo, formatSpan, formatUtc, makeScale, normalizeSelection, shiftSelection, ticks, zoomTo,
 } from '../lib/timeline';
@@ -19,14 +20,8 @@ const EDGE_PX = 7; // grab distance for the selection edges
 const CLICK_PX = 3; // less movement than this is a click
 const MIN_VIEW = 6 * HOUR;
 
-/** Badge notification type -> theme color, so the bars match the status badges. */
-const BADGE_COLOR = {
-    notificationInfo: variables.notificationColorInfo,
-    notificationPositive: variables.notificationColorPositive,
-    notificationCaution: variables.notificationColorCaution,
-    notificationNegative: variables.notificationColorNegative,
-};
-const replayColor = (status) => BADGE_COLOR[statusMeta(status).badge] || variables.contentColorMuted;
+/** Bars use the same tone colors as the status indicators in the tables. */
+const replayColor = (status) => TONE_COLOR[statusMeta(status).tone] || TONE_COLOR.neutral;
 
 const Svg = styled.svg`
     display: block;
@@ -131,7 +126,7 @@ function describeHover(t, data, replays) {
 /**
  * Interactive timeline for one sourcetype.
  * - Data track: one bar per UTC day with files, shaded by file count.
- * - Replay lanes: earlier jobs over their time range, colored like their status badge;
+ * - Replay lanes: earlier jobs over their time range, colored like their status;
  *   click one to open it.
  * - Selection: drag to select, drag inside to move, drag an edge to resize, click to
  *   select a whole UTC day. Arrow keys move it by an hour (Shift: resize the end).
@@ -318,7 +313,7 @@ export default function Timeline({ data, replays, domain, selection, onChange, o
                                 height={DATA_H}
                                 opacity={0.35 + 0.55 * (d.files / maxFiles)}
                             >
-                                <title>{`${d.day}: ${formatCount(d.files)} files, ${formatBytes(d.bytes)}, ${formatCount(d.forwarders)} forwarders`}</title>
+                                <title>{`${d.day}: ${formatCount(d.files)} files, ${formatBytes(d.bytes)}, ${formatCount(d.forwarders)} agents`}</title>
                             </DataBar>
                         );
                     })}

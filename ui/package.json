@@ -1,6 +1,6 @@
 {
   "name": "replay-control-ui",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "private": true,
   "description": "Splunk UI Toolkit page for the replay_control app",
   "scripts": {
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@splunk/moment": "0.7.0",
+    "@splunk/react-icons": "5.17.0",
     "@splunk/react-page": "8.5.0",
     "@splunk/react-time-range": "12.1.2",
     "@splunk/react-ui": "5.18.1",

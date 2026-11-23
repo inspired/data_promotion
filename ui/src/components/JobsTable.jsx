@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import Badge from '@splunk/react-ui/Badge';
 import Paginator from '@splunk/react-ui/Paginator';
 import Progress from '@splunk/react-ui/Progress';
 import Table from '@splunk/react-ui/Table';
@@ -10,24 +9,12 @@ import {
     formatRangeShort,
     paginate,
     progressOf,
-    statusMeta,
-    taskStatusMeta,
 } from '../lib/replay';
 import { Row, Stack } from './Layout';
+import { JobStatus } from './Status';
 
 const PAGE_SIZE = 25;
 
-/** Job status as a Design System Badge (status indicator, not interactive). */
-export function StatusBadge({ status }) {
-    const meta = statusMeta(status);
-    return <Badge label={meta.label} type={meta.badge} />;
-}
-
-/** An agent's task status. */
-export function TaskStatusBadge({ status }) {
-    const meta = taskStatusMeta(status);
-    return <Badge label={meta.label} type={meta.badge} />;
-}
 
 /** Progress bar for block layouts (the details panel). */
 export function JobProgress({ job }) {
@@ -52,12 +39,12 @@ export default function JobsTable({ jobs, nameByGuid, onSelect, selectedKey }) {
     const { current, totalPages, rows } = paginate(jobs, page, PAGE_SIZE);
     return (
         <Stack>
-            <Table stripeRows headType="docked">
+            <Table headType="docked">
                 <Table.Head>
                     <Table.HeadCell>Status</Table.HeadCell>
                     <Table.HeadCell>Job</Table.HeadCell>
                     <Table.HeadCell>Sourcetype</Table.HeadCell>
-                    <Table.HeadCell>Forwarders</Table.HeadCell>
+                    <Table.HeadCell>Agents</Table.HeadCell>
                     <Table.HeadCell>Time range (UTC)</Table.HeadCell>
                     <Table.HeadCell>Progress</Table.HeadCell>
                     <Table.HeadCell>Submitted (UTC)</Table.HeadCell>
@@ -70,7 +57,7 @@ export default function JobsTable({ jobs, nameByGuid, onSelect, selectedKey }) {
                             onClick={(e, data) => onSelect(data)}
                             selected={job._key === selectedKey}
                         >
-                            <Table.Cell><StatusBadge status={job.status} /></Table.Cell>
+                            <Table.Cell><JobStatus status={job.status} /></Table.Cell>
                             <Table.Cell>
                                 <Typography as="span" variant="monoSmallBody">{job.job_id}</Typography>
                             </Table.Cell>

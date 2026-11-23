@@ -151,11 +151,11 @@ export default function ReplayPlanner({ sourcetype, initialDay, catalogRows, job
                     <Row>
                         <Field $flex="3 1 360px">
                             <ControlGroup
-                                label="Forwarders"
+                                label="Agents"
                                 labelPosition="top"
                                 help={selected.length
-                                    ? `${formatCount(selected.length)} of ${formatCount(candidates.length)} forwarders selected.`
-                                    : `All ${formatCount(candidates.length)} forwarders that wrote ${sourcetype}.`}
+                                    ? `${formatCount(selected.length)} of ${formatCount(candidates.length)} agents selected.`
+                                    : `All ${formatCount(candidates.length)} agents that wrote ${sourcetype}.`}
                             >
                                 <ForwarderPicker forwarders={candidates} values={selected} onChange={setSelected} />
                             </ControlGroup>

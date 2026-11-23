@@ -103,7 +103,7 @@ export default function DataReplay() {
             <Stack $gap="small">
                 <Heading level={1}>Data Replay</Heading>
                 <P>
-                    Replay Ingest Actions output by sourcetype, time range and forwarder. Each forwarder replays
+                    Replay Ingest Actions output by sourcetype, time range and agent. Each agent (TA-replay_agent on a Heavy Forwarder) replays
                     its own files. Replayed events carry the indexed field replay_job; add NOT replay_job=* to
                     a search to exclude them.
                 </P>
@@ -112,7 +112,7 @@ export default function DataReplay() {
             {error && <Message type="error" onRequestRemove={() => setError(null)}>{error}</Message>}
             {staleForwarders > 0 && (
                 <Message type="warning">
-                    {formatCount(staleForwarders)} of {formatCount(forwarders.length)} forwarders have not reported for
+                    {formatCount(staleForwarders)} of {formatCount(forwarders.length)} agents have not reported for
                     15 minutes. Jobs that need their data wait up to 30 minutes, then finish as incomplete.
                 </Message>
             )}
@@ -135,7 +135,7 @@ export default function DataReplay() {
                 <TabLayout.Panel label={`Available data (${formatCount(catalog.length)} sourcetypes)`} panelId="catalog">
                     <PartitionsTable rows={catalogRows} onPick={openPlanner} />
                 </TabLayout.Panel>
-                <TabLayout.Panel label={`Forwarders (${formatCount(forwarders.length)})`} panelId="forwarders">
+                <TabLayout.Panel label={`Agents (${formatCount(forwarders.length)})`} panelId="forwarders">
                     <ForwardersTable forwarders={forwarders} />
                 </TabLayout.Panel>
             </TabLayout>

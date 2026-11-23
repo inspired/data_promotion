@@ -39,13 +39,25 @@ export const ButtonSlot = styled.div`
     padding-bottom: ${variables.spacingLarge};
 `;
 
+/** SidePanel inner element: a full-height column, so the body below the header can scroll. */
+export const SIDE_PANEL_INNER = { display: 'flex', flexDirection: 'column', width: 600, maxWidth: '100vw' };
+
+/** Fixed header of a side panel (title and Close); stays visible while the body scrolls. */
+export const SidePanelHeader = styled.div`
+    flex: 0 0 auto;
+    padding: ${variables.spacingLarge} ${variables.spacingXLarge} ${variables.spacingSmall};
+    border-bottom: 1px solid ${variables.borderColorWeak};
+`;
+
+/** Scrolling body of a side panel (the SUIT SidePanel pattern: flex 1 0 0px + overflow auto). */
 export const SidePanelBody = styled.div`
+    flex: 1 0 0px;
+    min-height: 0;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: ${variables.spacingLarge};
-    padding: ${variables.spacingXLarge};
-    width: 600px;
-    max-width: 100vw;
+    padding: ${variables.spacingLarge} ${variables.spacingXLarge} ${variables.spacingXLarge};
     box-sizing: border-box;
 `;
 

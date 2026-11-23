@@ -26,8 +26,9 @@ import {
     submitSearch,
     verifySearch,
 } from '../lib/replay';
-import { JobProgress, StatusBadge, TaskStatusBadge } from './JobsTable';
-import { Nowrap, Row, SidePanelBody, Stack } from './Layout';
+import { JobProgress } from './JobsTable';
+import { JobStatus, TaskStatus } from './Status';
+import { Nowrap, Row, SIDE_PANEL_INNER, SidePanelBody, SidePanelHeader, Stack } from './Layout';
 
 const num = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
 const MAX_LISTED_FORWARDERS = 20;
@@ -67,21 +68,21 @@ function AgentTasks({ job }) {
     }, [job.job_id, active]);
 
     const expected = num(job.agents_expected);
-    const summary = tasks === null ? null : `${formatCount(tasks.length)} of ${expected === null ? '?' : formatCount(expected)} forwarders reported`;
+    const summary = tasks === null ? null : `${formatCount(tasks.length)} of ${expected === null ? '?' : formatCount(expected)} agents reported`;
     const { current, totalPages, rows } = paginate(tasks || [], page, TASK_PAGE_SIZE);
     return (
         <Stack $gap="small">
             <Row $align="center">
-                <Heading level={3}>Progress per forwarder</Heading>
+                <Heading level={3}>Progress per agent</Heading>
                 {summary && <Typography as="span" color="muted">{summary}</Typography>}
                 {tasks === null && !error && <WaitSpinner />}
             </Row>
             {error && <Message type="error">{error}</Message>}
-            {tasks && tasks.length === 0 && <P>No forwarder has picked up this job yet.</P>}
+            {tasks && tasks.length === 0 && <P>No agent has picked up this job yet.</P>}
             {rows.length > 0 && (
-                <Table stripeRows>
+                <Table>
                     <Table.Head>
-                        <Table.HeadCell>Forwarder</Table.HeadCell>
+                        <Table.HeadCell>Agent</Table.HeadCell>
                         <Table.HeadCell>Status</Table.HeadCell>
                         <Table.HeadCell align="right">Files</Table.HeadCell>
                         <Table.HeadCell align="right">Events</Table.HeadCell>
@@ -95,7 +96,7 @@ function AgentTasks({ job }) {
                                         {t.message && <Typography as="span" variant="smallBody" color="muted">{t.message}</Typography>}
                                     </Stack>
                                 </Table.Cell>
-                                <Table.Cell><TaskStatusBadge status={t.status} /></Table.Cell>
+                                <Table.Cell><TaskStatus status={t.status} /></Table.Cell>
                                 <Table.Cell align="right">
                                     <Nowrap>{formatCount(t.files_done)} of {formatCount(t.files_total)}</Nowrap>
                                 </Table.Cell>
@@ -143,7 +144,7 @@ function Verify({ job }) {
                 <P>No events with replay_job={job.job_id} are searchable yet.</P>
             )}
             {state.rows && state.rows.length > 0 && (
-                <Table stripeRows>
+                <Table>
                     <Table.Head>
                         <Table.HeadCell>Index</Table.HeadCell>
                         <Table.HeadCell>Sourcetype</Table.HeadCell>
@@ -178,7 +179,7 @@ function Verify({ job }) {
 
 function ForwarderList({ job, nameByGuid }) {
     const guids = parseForwarders(job.forwarders);
-    if (!guids.length) return 'All forwarders';
+    if (!guids.length) return 'All agents';
     const shown = guids.slice(0, MAX_LISTED_FORWARDERS);
     return (
         <Stack $gap="small">
@@ -237,20 +238,22 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
     const runtime = num(job.finished_at) && num(job.started_at) ? num(job.finished_at) - num(job.started_at) : null;
     const toIndexed = num(job.completed_at) && num(job.finished_at) ? num(job.completed_at) - num(job.finished_at) : null;
     const forwarderText = describeForwarders(job, nameByGuid);
-    const fromText = forwarderText === 'All forwarders' ? 'all forwarders' : forwarderText;
+    const fromText = forwarderText === 'All agents' ? 'all agents' : forwarderText;
     const warn = ['failed', 'rejected', 'incomplete'].includes(job.status);
 
     return (
-        <SidePanel open dockPosition="right" onRequestClose={onClose}>
-            <SidePanelBody>
+        <SidePanel open dockPosition="right" onRequestClose={onClose} innerStyle={SIDE_PANEL_INNER}>
+            <SidePanelHeader>
                 <Row $align="center" $justify="space-between">
                     <Heading level={2}>
                         <Typography as="span" variant="monoBody">{job.job_id}</Typography>
                     </Heading>
                     <Button appearance="subtle" label="Close" onClick={onClose} />
                 </Row>
+            </SidePanelHeader>
+            <SidePanelBody>
                 <Row $align="center">
-                    <StatusBadge status={job.status} />
+                    <JobStatus status={job.status} />
                 </Row>
                 <JobProgress job={job} />
                 {job.message && <Message type={warn ? 'warning' : 'info'}>{job.message}</Message>}
@@ -259,7 +262,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                 <DefinitionList termWidth="170px">
                     <Term>Sourcetype</Term>
                     <Description>{job.sourcetype}</Description>
-                    <Term>Forwarders</Term>
+                    <Term>Agents</Term>
                     <Description><ForwarderList job={job} nameByGuid={nameByGuid} /></Description>
                     <Term>Index filter</Term>
                     <Description>{job.index_filter || '*'}</Description>
@@ -269,7 +272,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                     <Description>{formatCount(job.files_done)} of {formatCount(job.files_total)}</Description>
                     <Term>Read</Term>
                     <Description>{formatBytes(job.bytes_read)}</Description>
-                    <Term>Forwarders done</Term>
+                    <Term>Agents done</Term>
                     <Description>
                         {formatCount(job.agents_reported || 0)} of {formatCount(job.agents_expected)} reported
                         {num(job.agents_failed) ? `, ${formatCount(job.agents_failed)} failed` : ''}
@@ -307,7 +310,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                         <P>
                             {job.status === 'pending'
                                 ? 'The job has not started and will not run.'
-                                : 'Every forwarder stops after its current file. Events already handed over will still be indexed.'}
+                                : 'Every agent stops after its current file. Events already handed over will still be indexed.'}
                         </P>
                     ) : (
                         <P>

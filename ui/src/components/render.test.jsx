@@ -102,8 +102,8 @@ test('PartitionsTable renders partitions', async () => {
 test('JobPanel shows details and actions', async () => {
     const { text } = await render(<JobPanel job={{ ...job, status: 'running' }} onClose={() => {}} onChanged={() => {}} />);
     expect(text()).toContain('Events replayed');
-    expect(text()).toContain('2 of 2 forwarders reported');
-    expect(text()).toContain('Progress per forwarder');
+    expect(text()).toContain('2 of 2 agents reported');
+    expect(text()).toContain('Progress per agent');
     expect(text()).toContain('disk full');
     expect(text()).toContain('Cancel job');
     expect(text()).toContain('Replay again');
@@ -132,7 +132,7 @@ test('ForwardersTable renders forwarders', async () => {
     const { text } = await render(<ForwardersTable forwarders={fwd} />);
     expect(text()).toContain('splunk1');
     expect(text()).toContain('5A8D3399-FD7B-41CB-B0A9-23CC0BCE0EF8');
-    expect(text()).toContain('1 forwarders · 1 not reporting · times in UTC');
+    expect(text()).toContain('1 agents · 1 not reporting · times in UTC');
     expect(text()).toContain('Not reporting');
     expect(text()).toContain('1.2.1');
 });
@@ -151,7 +151,7 @@ test('JobsTable paginates', async () => {
 
 test('NewReplay renders the form', async () => {
     const { text } = await render(<NewReplay catalog={[{ sourcetype: 'splunkd', days: 1, files: 7, bytes: 1, firstDay: '2026-11-19', lastDay: '2026-11-19' }]} forwarders={fwd} onSubmitted={() => {}} />);
-    expect(text()).toContain('Forwarders');
+    expect(text()).toContain('Agents');
     expect(text()).toContain('Pick a sourcetype first.');
 });
 
@@ -187,4 +187,12 @@ test('ReplayPlanner shows data, earlier replays and the preselected day', async 
     // The completed job (2026-11-19 23:00 → 2026-11-21 09:00) overlaps that day.
     expect(text()).toContain('overlaps 1 earlier replay');
     expect(document.querySelectorAll('[data-job]').length).toBe(1);
+});
+
+test('Status is a colored icon with text, not a badge; tables have no row stripes', async () => {
+    await render(<JobsTable jobs={[job, { ...job, _key: 'f', job_id: 'f', status: 'failed' }]} onSelect={() => {}} />);
+    expect(document.querySelector('[data-test="badge"]')).toBeNull();
+    const tones = [...document.querySelectorAll('[data-status-tone]')].map((el) => [el.textContent, el.dataset.statusTone]);
+    expect(tones).toEqual([['Completed', 'positive'], ['Failed', 'negative']]);
+    expect(document.querySelectorAll('[data-status-tone] svg').length).toBe(2);
 });

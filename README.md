@@ -83,7 +83,7 @@ re-written replay is never replayed a second time.
    For many HFs, run this from your configuration management rather than shipping the
    token in a deployment app.
 3. Add the `replay_job` condition to the HF's Ingest Actions rules (above).
-4. Check `index=_internal source=*replay_agent.log` and the **Forwarders** tab: the HF
+4. Check `index=_internal source=*replay_agent.log` and the **Agents** tab: the HF
    shows as *Reporting* after its first run.
 
 ### All-in-one instance
@@ -105,10 +105,10 @@ fs_root = /dumps/splunk9.4-filesystemout
 ## Use
 - **Data Replay** page (Splunk UI Toolkit / Splunk Design System; follows the user's
   theme from Settings → User preferences): pick a sourcetype, a time range, optionally
-  forwarders (search by hostname or GUID; empty = all) and an index filter, then
-  **Replay**. Click a job for details, progress per forwarder, **Cancel job**,
+  agents (search by hostname or GUID; empty = all) and an index filter, then
+  **Replay**. Click a job for details, progress per agent, **Cancel job**,
   **Replay again**, and **Count now** (indexed events by index / sourcetype / host).
-  Tabs list the available data and the forwarders (with heartbeat state).
+  Tabs list the available data and the agents (with heartbeat state).
 - **Timeline:** click a sourcetype or a day on **Available data** (or **Pick on a timeline**
   in the form) to open a timeline of that sourcetype: the data the forwarders hold per
   UTC day, and earlier replays of it as bars colored by status (click one to open it).
