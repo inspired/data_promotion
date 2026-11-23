@@ -1,0 +1,33 @@
+[]
+access = read : [ * ], write : [ admin ]
+export = none
+
+[collections/replay_jobs]
+access = read : [ replay_user, admin ], write : [ replay_user, admin ]
+export = none
+
+[transforms/replay_jobs]
+access = read : [ replay_user, admin ], write : [ replay_user, admin ]
+export = none
+
+[collections/replay_catalog]
+access = read : [ replay_user, admin ], write : [ replay_user, admin ]
+export = none
+
+[transforms/replay_catalog]
+access = read : [ replay_user, admin ], write : [ replay_user, admin ]
+export = none
+
+[macros]
+access = read : [ replay_user, admin ], write : [ admin ]
+export = none
+
+[savedsearches]
+access = read : [ replay_user, admin ], write : [ admin ]
+export = none
+
+[fields]
+export = system
+
+[views]
+access = read : [ replay_user, admin ], write : [ admin ]
