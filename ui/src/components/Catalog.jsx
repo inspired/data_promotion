@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import Badge from '@splunk/react-ui/Badge';
+import Link from '@splunk/react-ui/Link';
 import Paginator from '@splunk/react-ui/Paginator';
 import Search from '@splunk/react-ui/Search';
 import Table from '@splunk/react-ui/Table';
@@ -104,9 +105,17 @@ function DataTable({ rows, columns, rowKey, filterKeys, filterPlaceholder, empty
     );
 }
 
-const PARTITION_COLUMNS = [
-    { key: 'sourcetype', label: 'Sourcetype' },
-    { key: 'day', label: 'Day (UTC)' },
+const partitionColumns = (onPick) => [
+    {
+        key: 'sourcetype',
+        label: 'Sourcetype',
+        render: (r) => <Link to="#" onClick={(e) => { e.preventDefault(); onPick(r.sourcetype); }}>{r.sourcetype}</Link>,
+    },
+    {
+        key: 'day',
+        label: 'Day (UTC)',
+        render: (r) => <Link to="#" onClick={(e) => { e.preventDefault(); onPick(r.sourcetype, r.day); }}>{r.day}</Link>,
+    },
     { key: 'forwarders', label: 'Forwarders', align: 'right', render: (r) => formatCount(r.forwarders) },
     { key: 'files', label: 'Files', align: 'right', render: (r) => formatCount(r.files) },
     { key: 'bytes', label: 'Size', align: 'right', render: (r) => formatBytes(r.bytes) },
@@ -157,7 +166,7 @@ const FORWARDER_COLUMNS = [
 ];
 
 /** What the forwarders hold: per sourcetype and UTC day. */
-export function PartitionsTable({ rows }) {
+export function PartitionsTable({ rows, onPick }) {
     const typed = useMemo(() => rows.map((r) => ({
         ...r,
         forwarders: Number(r.forwarders || 0),
@@ -166,16 +175,17 @@ export function PartitionsTable({ rows }) {
         earliest: Number(r.earliest || 0),
         latest: Number(r.latest || 0),
     })), [rows]);
+    const columns = useMemo(() => partitionColumns(onPick), [onPick]);
     const updated = rows.reduce((m, r) => Math.max(m, Number(r.updated_at || 0)), 0);
     return (
         <DataTable
             rows={typed}
-            columns={PARTITION_COLUMNS}
+            columns={columns}
             rowKey={(r) => r._key || `${r.sourcetype}|${r.day}`}
             filterKeys={['sourcetype', 'day']}
             filterPlaceholder="Filter by sourcetype or day"
             emptyText="No forwarder has published its catalog yet."
-            summary={(n) => `${formatCount(n)} partitions · times in UTC · catalog updated ${ago(updated)}`}
+            summary={(n) => `${formatCount(n)} partitions · times in UTC · catalog updated ${ago(updated)} · click a sourcetype or day to replay it on a timeline`}
             initialSort={{ key: 'day', dir: 'desc' }}
         />
     );

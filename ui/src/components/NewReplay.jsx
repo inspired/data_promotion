@@ -2,19 +2,19 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Card from '@splunk/react-ui/Card';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
+import Link from '@splunk/react-ui/Link';
 import Message from '@splunk/react-ui/Message';
 import Multiselect from '@splunk/react-ui/Multiselect';
 import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import TimeRangeDropdown from '@splunk/react-time-range/Dropdown';
 import SplunkwebConnector from '@splunk/react-time-range/SplunkwebConnector';
-import { runSearch } from '../lib/api';
+import { submitReplay } from '../lib/api';
 import {
     filterForwarders,
     formatBytes,
     formatCount,
     forwardersWithSourcetype,
-    submitSearch,
     validateIndexFilter,
     validateSourcetype,
     validateTimeRange,
@@ -25,7 +25,7 @@ const NO_REALTIME = (presets) => presets.filter((p) => !String(p.earliest).start
 const OPTION_LIMIT = 100;
 
 /** Picker for writing forwarders; handles thousands of entries by filtering on the keyword. */
-function ForwarderPicker({ forwarders, values, onChange }) {
+export function ForwarderPicker({ forwarders, values, onChange }) {
     const [keyword, setKeyword] = useState('');
     const { options, total, truncated } = useMemo(
         () => filterForwarders(forwarders, keyword, values, OPTION_LIMIT),
@@ -57,7 +57,7 @@ function ForwarderPicker({ forwarders, values, onChange }) {
 }
 
 /** Form for submitting a replay job. Submission goes through the replay_submit macro. */
-export default function NewReplay({ catalog, forwarders, onSubmitted }) {
+export default function NewReplay({ catalog, forwarders, onSubmitted, onOpenTimeline }) {
     const [sourcetype, setSourcetype] = useState('');
     const [earliest, setEarliest] = useState('-24h@h');
     const [latest, setLatest] = useState('@h');
@@ -82,10 +82,7 @@ export default function NewReplay({ catalog, forwarders, onSubmitted }) {
         setBusy(true);
         setResult(null);
         try {
-            const spl = submitSearch(sourcetype, indexFilter || '*', selected);
-            const rows = await runSearch(spl, earliest, latest);
-            const row = rows[0];
-            if (!row) throw new Error('The submit search returned no result.');
+            const row = await submitReplay({ sourcetype, indexFilter, forwarders: selected, earliest, latest });
             if (row.status === 'rejected') {
                 setResult({ type: 'error', text: `Rejected: ${row.message}` });
             } else {
@@ -140,7 +137,9 @@ export default function NewReplay({ catalog, forwarders, onSubmitted }) {
                             </ControlGroup>
                         </Field>
                         <Field>
-                            <ControlGroup label="Time range" labelPosition="top" help="Each event is filtered on its own timestamp.">
+                            <ControlGroup label="Time range" labelPosition="top" help={sourcetype
+                                    ? <>Each event is filtered on its own timestamp. <Link to="#" onClick={(e) => { e.preventDefault(); onOpenTimeline(sourcetype); }}>Pick on a timeline</Link></>
+                                    : 'Each event is filtered on its own timestamp.'}>
                                 <SplunkwebConnector presetsTransform={NO_REALTIME}>
                                     <TimeRangeDropdown
                                         earliest={earliest}

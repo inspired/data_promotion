@@ -42,3 +42,4 @@ export const fetchTasks = async (jobId) => Array.from({ length: jobId.endsWith('
 export const fetchThemePreference = async () => null;
 export const cancelJob = async () => ({});
 export const runSearch = async () => [{ index: '_internal', sourcetype: 'splunkd', host: 'splunk1', count: '807600' }, { index: '_internal', sourcetype: 'splunkd', host: 'ip-172-31-28-22', count: '36826' }];
+export const submitReplay = async ({ earliest, latest }) => ({ job_id: '20261123-160000-new000', status: 'pending', earliest, latest, message: 'queued' });

@@ -6,7 +6,7 @@
 import SearchJob from '@splunk/search-job';
 import { createRESTURL } from '@splunk/splunk-utils/url';
 import { getDefaultFetchInit, handleResponse, handleError } from '@splunk/splunk-utils/fetch';
-import { APP, JOBS, SOURCES, FORWARDER_NAMES, TASKS, AGENTS, CATALOG_SEARCH, cancelledStatus } from './replay';
+import { APP, JOBS, SOURCES, FORWARDER_NAMES, TASKS, AGENTS, CATALOG_SEARCH, cancelledStatus, submitSearch } from './replay';
 
 function kvURL(collection, key) {
     const path = `storage/collections/data/${collection}${key ? `/${encodeURIComponent(key)}` : ''}`;
@@ -109,4 +109,14 @@ export function runSearch(search, earliest, latest) {
             error: (err) => reject(err instanceof Error ? err : new Error(String(err && err.message ? err.message : err))),
         });
     });
+}
+
+/**
+ * Submit a replay through the replay_submit macro and resolve with its result row
+ * (job_id, status, message, earliest, latest). earliest/latest: Splunk time modifiers or epochs.
+ */
+export async function submitReplay({ sourcetype, indexFilter, forwarders, earliest, latest }) {
+    const rows = await runSearch(submitSearch(sourcetype, indexFilter || '*', forwarders), String(earliest), String(latest));
+    if (!rows[0]) throw new Error('The submit search returned no result.');
+    return rows[0];
 }

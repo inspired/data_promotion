@@ -9,6 +9,7 @@ import { ForwardersTable, PartitionsTable } from './Catalog';
 import NewReplay from './NewReplay';
 import JobPanel from './JobPanel';
 import JobsTable from './JobsTable';
+import ReplayPlanner from './ReplayPlanner';
 
 // SplunkwebConnector talks to splunkd (time parsing, capabilities); pass children through.
 jest.mock('@splunk/react-time-range/SplunkwebConnector', () => ({
@@ -22,6 +23,7 @@ jest.mock('@splunk/react-time-range/SplunkwebConnector', () => ({
 
 jest.mock('../lib/api', () => ({
     runSearch: jest.fn(() => Promise.resolve([])),
+    submitReplay: jest.fn(() => Promise.resolve({ job_id: 'new1', status: 'pending' })),
     cancelJob: jest.fn(() => Promise.resolve({})),
     fetchTasks: jest.fn(() => Promise.resolve([
         { _key: 't1', agent_host: 'hf-osl-0001', status: 'done', files_done: 3, files_total: 3, events_staged: 1000, message: 'ok' },
@@ -92,7 +94,7 @@ test('JobsTable empty state', async () => {
 });
 
 test('PartitionsTable renders partitions', async () => {
-    const { text } = await render(<PartitionsTable rows={[{ _key: 'splunkd|2026-11-19', sourcetype: 'splunkd', day: '2026-11-19', files: 7, bytes: 283505189, earliest: 1795068000, latest: 1795093200, backend: 'filesystem', forwarders: 2, updated_at: 1 }]} />);
+    const { text } = await render(<PartitionsTable onPick={() => {}} rows={[{ _key: 'splunkd|2026-11-19', sourcetype: 'splunkd', day: '2026-11-19', files: 7, bytes: 283505189, earliest: 1795068000, latest: 1795093200, backend: 'filesystem', forwarders: 2, updated_at: 1 }]} />);
     expect(text()).toContain('splunkd');
     expect(text()).toContain('270.4 MB');
 });
@@ -151,4 +153,38 @@ test('NewReplay renders the form', async () => {
     const { text } = await render(<NewReplay catalog={[{ sourcetype: 'splunkd', days: 1, files: 7, bytes: 1, firstDay: '2026-11-19', lastDay: '2026-11-19' }]} forwarders={fwd} onSubmitted={() => {}} />);
     expect(text()).toContain('Forwarders');
     expect(text()).toContain('Pick a sourcetype first.');
+});
+
+const catalogRows = [
+    { sourcetype: 'splunkd', day: '2026-11-19', files: 24, bytes: 1e9, earliest: 1795046400, latest: 1795129200, forwarders: 2 },
+    { sourcetype: 'splunkd', day: '2026-11-20', files: 12, bytes: 5e8, earliest: 1795132800, latest: 1795176000, forwarders: 2 },
+];
+
+test('PartitionsTable: clicking a day opens the planner for it', async () => {
+    const onPick = jest.fn();
+    await render(<PartitionsTable rows={catalogRows} onPick={onPick} />);
+    const link = [...document.querySelectorAll('a, button')].find((el) => el.textContent === '2026-11-20');
+    await act(async () => link.click());
+    expect(onPick).toHaveBeenCalledWith('splunkd', '2026-11-20');
+});
+
+test('ReplayPlanner shows data, earlier replays and the preselected day', async () => {
+    const { text } = await render(
+        <ReplayPlanner
+            sourcetype="splunkd"
+            initialDay="2026-11-19"
+            catalogRows={catalogRows}
+            jobs={[job]}
+            forwarders={fwd}
+            onClose={() => {}}
+            onSubmitted={() => {}}
+            onOpenJob={() => {}}
+        />
+    );
+    expect(text()).toContain('Replay splunkd');
+    expect(document.body.innerHTML).toContain('2026-11-19 00:00');
+    expect(text()).toContain('24 hours');
+    // The completed job (2026-11-19 23:00 → 2026-11-21 09:00) overlaps that day.
+    expect(text()).toContain('overlaps 1 earlier replay');
+    expect(document.querySelectorAll('[data-job]').length).toBe(1);
 });

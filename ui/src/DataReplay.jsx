@@ -9,6 +9,7 @@ import JobPanel from './components/JobPanel';
 import JobsTable from './components/JobsTable';
 import { Page, Stack } from './components/Layout';
 import NewReplay from './components/NewReplay';
+import ReplayPlanner from './components/ReplayPlanner';
 import { fetchAgents, fetchCatalog, fetchForwarderNames, fetchJobs, fetchSources } from './lib/api';
 import { buildForwarders, formatCount, sortJobs, statusMeta, summarizeCatalog } from './lib/replay';
 
@@ -26,6 +27,7 @@ export default function DataReplay() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [selectedKey, setSelectedKey] = useState(null);
+    const [planner, setPlanner] = useState(null); // { sourcetype, day }
     const timer = useRef(null);
 
     const loadJobs = useCallback(async () => {
@@ -82,6 +84,15 @@ export default function DataReplay() {
     }, [forwarders]);
     const selected = jobs.find((j) => j._key === selectedKey) || null;
 
+    const openPlanner = useCallback((sourcetype, day) => setPlanner({ sourcetype, day }), []);
+    const openJob = (jobId) => {
+        const job = jobs.find((j) => j.job_id === jobId);
+        if (!job) return;
+        setPlanner(null);
+        setTab('jobs');
+        setSelectedKey(job._key);
+    };
+
     const afterChange = (newJobId) => {
         if (newJobId) setSelectedKey(newJobId);
         loadJobs();
@@ -106,7 +117,7 @@ export default function DataReplay() {
                 </Message>
             )}
 
-            <NewReplay catalog={catalog} forwarders={forwarders} onSubmitted={afterChange} />
+            <NewReplay catalog={catalog} forwarders={forwarders} onSubmitted={afterChange} onOpenTimeline={openPlanner} />
 
             <TabLayout activePanelId={tab} onChange={(e, { activePanelId }) => setTab(activePanelId)}>
                 <TabLayout.Panel label={`Jobs (${formatCount(jobs.length)})`} panelId="jobs">
@@ -122,12 +133,25 @@ export default function DataReplay() {
                     )}
                 </TabLayout.Panel>
                 <TabLayout.Panel label={`Available data (${formatCount(catalog.length)} sourcetypes)`} panelId="catalog">
-                    <PartitionsTable rows={catalogRows} />
+                    <PartitionsTable rows={catalogRows} onPick={openPlanner} />
                 </TabLayout.Panel>
                 <TabLayout.Panel label={`Forwarders (${formatCount(forwarders.length)})`} panelId="forwarders">
                     <ForwardersTable forwarders={forwarders} />
                 </TabLayout.Panel>
             </TabLayout>
+
+            {planner && (
+                <ReplayPlanner
+                    sourcetype={planner.sourcetype}
+                    initialDay={planner.day}
+                    catalogRows={catalogRows}
+                    jobs={jobs}
+                    forwarders={forwarders}
+                    onClose={() => setPlanner(null)}
+                    onSubmitted={afterChange}
+                    onOpenJob={openJob}
+                />
+            )}
 
             {selected && (
                 <JobPanel

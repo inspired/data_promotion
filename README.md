@@ -109,6 +109,13 @@ fs_root = /dumps/splunk9.4-filesystemout
   **Replay**. Click a job for details, progress per forwarder, **Cancel job**,
   **Replay again**, and **Count now** (indexed events by index / sourcetype / host).
   Tabs list the available data and the forwarders (with heartbeat state).
+- **Timeline:** click a sourcetype or a day on **Available data** (or **Pick on a timeline**
+  in the form) to open a timeline of that sourcetype: the data the forwarders hold per
+  UTC day, and earlier replays of it as bars colored by status (click one to open it).
+  Drag to select a range, drag inside it to move it, drag an edge to resize, or click a day
+  to select it; times snap to whole UTC hours and can also be typed. Ctrl/⌘ + scroll zooms,
+  horizontal scroll pans, arrow keys move the selection (Shift: resize). A warning lists
+  earlier replays the range overlaps, since their events would be indexed again.
 - Or from search (the time picker sets the range):
   ``| `replay_submit(splunkd, *, *)` `` (all forwarders) or
   ``| `replay_submit(splunkd, *, 5A8D3399-FD7B-41CB-B0A9-23CC0BCE0EF8 BF6301FD-4484-45FA-802E-F657F1AFB5F7)` ``.
