@@ -15,6 +15,8 @@ import replay_agent as ra  # noqa: E402
 H06 = 1795068000
 HOUR = 3600
 GUID = "5A8D3399-FD7B-41CB-B0A9-23CC0BCE0EF8"
+GUID2 = "BF6301FD-4484-45FA-802E-F657F1AFB5F7"
+AGENT = {"guid": GUID, "hostname": "hf1"}
 
 
 class FakeKV:
@@ -88,12 +90,12 @@ class Base(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def write_hour(self, start, events, st="splunkd", gz=False):
+    def write_hour(self, start, events, st="splunkd", gz=False, guid=GUID):
         d = datetime.datetime.fromtimestamp(start, datetime.timezone.utc)
         p = os.path.join(self.dumps, "year=%d" % d.year, "month=%02d" % d.month,
                          "day=%02d" % d.day, "sourcetype=%s" % st)
         os.makedirs(p, exist_ok=True)
-        name = "events_%d_%d_0_000000_%s.ndjson" % (start + HOUR, start, GUID)
+        name = "events_%d_%d_0_000000_%s.ndjson" % (start + HOUR, start, guid)
         body = "".join(json.dumps(e) + "\n" for e in events).encode()
         if gz:
             import gzip
@@ -103,10 +105,24 @@ class Base(unittest.TestCase):
             f.write(body)
         return name
 
-    def submit(self, earliest, latest, st="splunkd", idx="*", key="job1"):
-        self.kv.put(ra.JOBS, key, {"job_id": key, "sourcetype": st, "index_filter": idx,
-                                   "earliest": earliest, "latest": latest,
-                                   "status": "pending", "submitted_at": 1})
+    def submit(self, earliest, latest, st="splunkd", idx="*", key="job1", fwd=None):
+        job = {"job_id": key, "sourcetype": st, "index_filter": idx,
+               "earliest": earliest, "latest": latest, "status": "pending", "submitted_at": 1}
+        if fwd is not None:
+            job["forwarders"] = fwd
+        self.kv.put(ra.JOBS, key, job)
+
+    def agent_run(self, agent=AGENT, served=None):
+        """One agent cycle: catalog (for 'served') + jobs, batch output."""
+        if served is None:
+            served = ra.build_catalog(self.backend, agent)[2]
+        ra.process_jobs(self.cfg, self.backend, self.kv, agent, served, self.sink)
+
+    def sink(self, job_key):
+        return ra.make_sink(self.cfg, job_key)
+
+    def task(self, key="job1", agent=AGENT):
+        return self.kv.get(ra.TASKS, ra.task_key(key, agent["guid"]))
 
     def staged_events(self, key="job1"):
         d = os.path.join(self.cfg.get("agent", "staging_dir"), key)
@@ -157,11 +173,11 @@ class TestRunJob(Base):
         self.write_hour(H06, evs)
         self.write_hour(H06 + HOUR, [event(H06 + HOUR + 5)])
         self.submit(H06 + 10 * 60, H06 + 20 * 60)
-        ra.process_pending(self.cfg, self.backend, self.kv)
+        self.agent_run()
 
-        job = self.kv.get(ra.JOBS, "job1")
-        self.assertEqual(job["status"], "staged", job.get("message"))
-        self.assertEqual(job["events_staged"], 10)
+        t = self.task()
+        self.assertEqual(t["status"], "done", t.get("message"))
+        self.assertEqual((t["events_staged"], t["agent_host"]), (10, "hf1"))
         out = self.staged_events()
         self.assertEqual([e["time"] for e in out], [H06 + m * 60 for m in range(10, 20)])
         for e in out:
@@ -169,15 +185,35 @@ class TestRunJob(Base):
             self.assertEqual(e["index"], "_internal")
             self.assertEqual(e["sourcetype"], "splunkd")
         self.assertEqual(os.listdir(self.cfg.get("agent", "work_dir")), [])
+        # The agent never writes the job record.
+        self.assertEqual(self.kv.get(ra.JOBS, "job1")["status"], "pending")
+
+    def test_runs_each_job_once(self):
+        self.write_hour(H06, [event(H06 + 5)])
+        self.submit(H06, H06 + HOUR)
+        self.agent_run()
+        os.remove(os.path.join(self.cfg.get("agent", "staging_dir"), "job1",
+                               os.listdir(os.path.join(self.cfg.get("agent", "staging_dir"), "job1"))[0]))
+        self.agent_run()
+        self.assertEqual(self.staged_events(), [])
 
     def test_adds_fields_when_missing_and_reads_gzip(self):
         self.write_hour(H06, [event(H06 + 5, fields=False)], gz=True)
         self.submit(H06, H06 + HOUR)
-        ra.process_pending(self.cfg, self.backend, self.kv)
+        self.agent_run()
         out = self.staged_events()
         self.assertEqual(out[0]["fields"], {"replay_job": "job1"})
         self.assertTrue(all(n.endswith(".ndjson") for n in
                             os.listdir(os.path.join(self.cfg.get("agent", "staging_dir"), "job1"))))
+
+    def test_skips_events_from_earlier_replays(self):
+        replayed = event(H06 + 2)
+        replayed["fields"]["replay_job"] = "older"
+        self.write_hour(H06, [event(H06 + 1), replayed])
+        self.submit(H06, H06 + HOUR)
+        self.agent_run()
+        t = self.task()
+        self.assertEqual((t["events_staged"], t["events_skipped"]), (1, 1))
 
     def test_index_filter_and_bad_lines(self):
         name = self.write_hour(H06, [event(H06 + 1, index="main"), event(H06 + 2, index="_internal")])
@@ -185,32 +221,40 @@ class TestRunJob(Base):
         with open(path, "a") as f:
             f.write("not json\n{\"event\":\"no time\"}\n")
         self.submit(H06, H06 + HOUR, idx="_int*")
-        ra.process_pending(self.cfg, self.backend, self.kv)
-        job = self.kv.get(ra.JOBS, "job1")
-        self.assertEqual((job["events_staged"], job["events_skipped"], job["events_bad"]), (1, 1, 2))
+        self.agent_run()
+        t = self.task()
+        self.assertEqual((t["events_staged"], t["events_skipped"], t["events_bad"]), (1, 1, 2))
 
-    def test_no_files(self):
-        self.submit(H06, H06 + HOUR)
-        ra.process_pending(self.cfg, self.backend, self.kv)
-        job = self.kv.get(ra.JOBS, "job1")
-        self.assertEqual(job["status"], "staged")
-        self.assertIn("no files", job["message"])
+    def test_no_files_in_range(self):
+        self.write_hour(H06, [event(H06 + 1)])
+        self.submit(H06 + 10 * HOUR, H06 + 11 * HOUR)
+        self.agent_run()
+        t = self.task()
+        self.assertEqual((t["status"], t["events_staged"]), ("done", 0))
+        self.assertIn("no files", t["message"])
+
+    def test_not_targeted_creates_no_task(self):
+        self.write_hour(H06, [event(H06 + 1)])
+        self.submit(H06, H06 + HOUR, st="other")
+        self.submit(H06, H06 + HOUR, key="job2", fwd=GUID2)
+        self.agent_run()
+        self.assertEqual(self.kv.query(ra.TASKS), [])
 
     def test_invalid_jobs_fail(self):
+        self.write_hour(H06, [event(H06 + 1)])
         self.submit(H06 + HOUR, H06, key="bad_range")
-        self.submit(H06, H06 + HOUR, st="../etc", key="bad_st")
-        ra.process_pending(self.cfg, self.backend, self.kv)
-        self.assertEqual(self.kv.get(ra.JOBS, "bad_range")["status"], "failed")
-        self.assertEqual(self.kv.get(ra.JOBS, "bad_st")["status"], "failed")
+        self.agent_run()
+        self.assertEqual(self.task("bad_range")["status"], "failed")
+        self.assertIn("time range", self.task("bad_range")["message"])
 
     def test_size_limit(self):
         self.write_hour(H06, [event(H06 + 1)])
         self.cfg.cp.set("agent", "max_bytes_per_job", "10")
         self.submit(H06, H06 + HOUR)
-        ra.process_pending(self.cfg, self.backend, self.kv)
-        job = self.kv.get(ra.JOBS, "job1")
-        self.assertEqual(job["status"], "failed")
-        self.assertIn("max_bytes_per_job", job["message"])
+        self.agent_run()
+        t = self.task()
+        self.assertEqual(t["status"], "failed")
+        self.assertIn("max_bytes_per_job", t["message"])
 
     def test_cancel_while_running(self):
         for h in range(3):
@@ -221,45 +265,152 @@ class TestRunJob(Base):
 
         def put(coll, key, rec):
             real_put(coll, key, rec)
-            if rec.get("files_done") == 1 and not fired:
+            if coll == ra.TASKS and rec.get("files_done") == 1 and not fired:
                 fired.append(1)
-                self.kv.data[coll][key]["status"] = "cancel_requested"
+                self.kv.data[ra.JOBS]["job1"]["status"] = "cancel_requested"
         self.kv.put = put
-        ra.process_pending(self.cfg, self.backend, self.kv)
-        job = self.kv.get(ra.JOBS, "job1")
-        self.assertEqual(job["status"], "cancelled")
+        ra.Task.__init__.__defaults__ = (0,)  # save progress after every file
+        try:
+            self.agent_run()
+        finally:
+            ra.Task.__init__.__defaults__ = (5,)
+        self.assertEqual(self.task()["status"], "cancelled")
         self.assertEqual(len(self.staged_events()), 1)
 
-    def test_cancelled_before_claim_is_not_run(self):
-        self.write_hour(H06, [event(H06 + 1)])
-        self.submit(H06, H06 + HOUR)
-        job = self.kv.query(ra.JOBS, {"status": "pending"})[0]
-        self.kv.data[ra.JOBS]["job1"]["status"] = "cancelled"
-        with self.assertRaises(ra.Cancelled):
-            ra.run_job(self.cfg, self.backend, self.kv, job)
-
     def test_recover_stale(self):
-        import socket
-        self.kv.put(ra.JOBS, "j", {"status": "running", "agent_host": socket.gethostname()})
-        ra.recover_stale(self.kv)
-        self.assertEqual(self.kv.get(ra.JOBS, "j")["status"], "failed")
+        self.kv.put(ra.TASKS, "j|" + GUID, {"agent": GUID, "status": "running"})
+        self.kv.put(ra.TASKS, "j|" + GUID2, {"agent": GUID2, "status": "running"})
+        ra.recover_stale(self.kv, AGENT)
+        self.assertEqual(self.kv.get(ra.TASKS, "j|" + GUID)["status"], "failed")
+        self.assertEqual(self.kv.get(ra.TASKS, "j|" + GUID2)["status"], "running")
+
+
+class TestManyAgents(Base):
+    """Two agents (HF1 and HF2), each with its own local dumps, sharing one job."""
+
+    def test_each_agent_replays_its_own_files(self):
+        self.write_hour(H06, [event(H06 + 1)], guid=GUID)
+        other = ra.FilesystemBackend(os.path.join(self.tmp.name, "dumps2"))
+        self.dumps, keep = other.root, self.dumps
+        self.write_hour(H06, [event(H06 + 2), event(H06 + 3)], guid=GUID2)
+        self.dumps = keep
+        agent2 = {"guid": GUID2, "hostname": "hf2"}
+
+        self.submit(H06, H06 + HOUR, fwd="*")
+        self.agent_run()
+        ra.process_jobs(self.cfg, other, self.kv, agent2, ra.build_catalog(other, agent2)[2], self.sink)
+        self.assertEqual(self.task()["events_staged"], 1)
+        self.assertEqual(self.task(agent=agent2)["events_staged"], 2)
+
+    def test_catalogs_do_not_overwrite_each_other(self):
+        self.write_hour(H06, [event(H06 + 1)], guid=GUID)
+        other = ra.FilesystemBackend(os.path.join(self.tmp.name, "dumps2"))
+        self.dumps, keep = other.root, self.dumps
+        self.write_hour(H06, [event(H06 + 1)], guid=GUID2)
+        self.dumps = keep
+        ra.publish_catalog(self.kv, self.backend, AGENT)
+        ra.publish_catalog(self.kv, other, {"guid": GUID2, "hostname": "hf2"})
+        self.assertEqual(sorted(self.kv.data[ra.SOURCES]), sorted(["%s|%s" % (GUID, GUID), "%s|%s" % (GUID2, GUID2)]))
+        self.assertEqual(len(self.kv.data[ra.CATALOG]), 2)
 
 
 class TestCatalog(Base):
     def test_catalog_rows(self):
         self.write_hour(H06, [event(H06 + 1)])
         self.write_hour(H06 + HOUR, [event(H06 + HOUR + 1)])
+        self.write_hour(H06, [event(H06 + 1)], guid=GUID2)
         self.write_hour(H06, [event(H06 + 1, st="other")], st="other")
-        rows = {r["_key"]: r for r in ra.build_catalog(self.backend, now=5)}
-        r = rows["splunkd|2026-11-19"]
-        self.assertEqual((r["files"], r["earliest"], r["latest"]), (2, H06, H06 + 2 * HOUR))
-        self.assertIn("other|2026-11-19", rows)
+        parts, sources, served = ra.build_catalog(self.backend, AGENT, now=5)
+        rows = {r["_key"]: r for r in parts}
+        r = rows["%s|splunkd|2026-11-19" % GUID]
+        self.assertEqual((r["files"], r["earliest"], r["latest"], r["forwarders"], r["agent"]),
+                         (3, H06, H06 + 2 * HOUR, 2, GUID))
+        src = {s["guid"]: s for s in sources}
+        self.assertEqual(src[GUID]["sourcetypes"], ["other", "splunkd"])
+        self.assertEqual((src[GUID]["files"], src[GUID]["days"], src[GUID]["agent_host"]), (3, 1, "hf1"))
+        self.assertEqual(served, {GUID: ["other", "splunkd"], GUID2: ["splunkd"]})
 
-    def test_publish_removes_stale(self):
-        self.kv.put(ra.CATALOG, "gone|2020-01-01", {"updated_at": 1})
+    def test_publish_removes_only_own_stale_and_legacy_rows(self):
+        self.kv.put(ra.CATALOG, "%s|gone|2020-01-01" % GUID, {"agent": GUID, "updated_at": 1})
+        self.kv.put(ra.CATALOG, "%s|x|2020-01-01" % GUID2, {"agent": GUID2, "updated_at": 1})
+        self.kv.put(ra.CATALOG, "splunkd|2026-11-19", {"updated_at": 1})
+        self.kv.put(ra.SOURCES, GUID, {"guid": GUID, "updated_at": 1})
         self.write_hour(H06, [event(H06 + 1)])
-        ra.publish_catalog(self.kv, self.backend)
-        self.assertEqual(list(self.kv.data[ra.CATALOG]), ["splunkd|2026-11-19"])
+        ra.publish_catalog(self.kv, self.backend, AGENT)
+        self.assertEqual(sorted(self.kv.data[ra.CATALOG]),
+                         sorted(["%s|splunkd|2026-11-19" % GUID, "%s|x|2020-01-01" % GUID2]))
+        self.assertEqual(list(self.kv.data[ra.SOURCES]), ["%s|%s" % (GUID, GUID)])
+
+    def test_run_once_registers_agent(self):
+        self.write_hour(H06, [event(H06 + 1)])
+        state = ra.run_once(self.cfg, self.kv, self.backend, AGENT, {}, self.sink, now=1000)
+        a = self.kv.get(ra.AGENTS, GUID)
+        self.assertEqual((a["hostname"], a["forwarders"]), ("hf1", 1))
+        self.assertEqual(state["served"], {GUID: ["splunkd"]})
+
+
+class TestForwarders(Base):
+    def test_parse_writer_guid(self):
+        self.assertEqual(ra.parse_writer_guid(
+            "events_1795071600_1795068000_0_000000_5a8d3399-fd7b-41cb-b0a9-23cc0bce0ef8.ndjson.gz"), GUID)
+        self.assertEqual(ra.parse_writer_guid("events_1_2_x.ndjson"), ra.UNKNOWN_GUID)
+
+    def test_parse_forwarders(self):
+        self.assertIsNone(ra.parse_forwarders(None))
+        self.assertIsNone(ra.parse_forwarders("*"))
+        self.assertIsNone(ra.parse_forwarders(""))
+        self.assertEqual(ra.parse_forwarders("%s %s" % (GUID.lower(), GUID2)), {GUID, GUID2})
+        self.assertEqual(ra.parse_forwarders([GUID]), {GUID})
+        with self.assertRaises(ra.JobError):
+            ra.parse_forwarders("not-a-guid")
+
+    def test_shared_store_agent_limits_to_selected_forwarders(self):
+        self.write_hour(H06, [event(H06 + 1)], guid=GUID)
+        self.write_hour(H06, [event(H06 + 2), event(H06 + 3)], guid=GUID2)
+        self.submit(H06, H06 + HOUR, fwd=GUID2)
+        self.agent_run()
+        t = self.task()
+        self.assertEqual((t["status"], t["files_total"], t["events_staged"]), ("done", 1, 2))
+
+    def test_all_forwarders_by_default(self):
+        self.write_hour(H06, [event(H06 + 1)], guid=GUID)
+        self.write_hour(H06, [event(H06 + 2)], guid=GUID2)
+        self.submit(H06, H06 + HOUR, fwd="*")
+        self.agent_run()
+        self.assertEqual(self.task()["events_staged"], 2)
+
+    def test_invalid_forwarders_fail_task(self):
+        self.write_hour(H06, [event(H06 + 1)])
+        self.submit(H06, H06 + HOUR, fwd="nope")
+        self.agent_run()
+        t = self.task()
+        self.assertEqual(t["status"], "failed")
+        self.assertIn("forwarder", t["message"])
+
+
+
+class TestKVStoreClient(unittest.TestCase):
+    """The real KV store only updates on POST .../<key>; new records need batch_save."""
+
+    def test_put_upserts_with_batch_save(self):
+        kv = ra.KVStore("https://sh:8089", "replay_control", "Splunk X", verify=False)
+        calls = []
+        kv._do = lambda method, url, body=None: calls.append((method, url, body))
+        kv.put(ra.AGENTS, GUID, {"hostname": "hf1", "_user": "nobody"})
+        method, url, body = calls[0]
+        self.assertEqual(method, "POST")
+        self.assertTrue(url.endswith("/storage/collections/data/replay_agents/batch_save"), url)
+        self.assertEqual(body, [{"hostname": "hf1", "_key": GUID}])
+
+    def test_heartbeat_failure_does_not_block_jobs(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            cfg = ra.Config(app_dir="/nonexistent", overrides={"agent": {"fs_root": d}})
+            state = {"catalog_at": 10 ** 10, "served": {}}
+            with mock.patch.object(ra, "heartbeat", side_effect=RuntimeError("HTTP 404")), \
+                    mock.patch.object(ra, "process_jobs") as jobs:
+                ra.run_once(cfg, FakeKV(), ra.FilesystemBackend(d), AGENT, state, None, now=10 ** 10)
+            jobs.assert_called_once()
 
 
 class TestControlTarget(unittest.TestCase):

@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 """
-Data replay agent for a dedicated replay Heavy Forwarder.
+Data replay agent. Runs inside every Heavy Forwarder whose Ingest Actions output should
+be replayable, reads that forwarder's own dump directory and replays it through the
+forwarder's own [batch://] input. Any number of forwarders work against one Search Head.
 
 Runs as a Splunk scripted input (passAuth = splunk-system-user). Each run:
   1. Takes a non-blocking lock so runs never overlap.
-  2. Publishes a catalog of available (sourcetype, day) partitions to the
-     Search Head KV store (every `catalog_interval` seconds).
-  3. Pulls pending jobs from the SH KV store (replay_jobs) and, per job:
+  2. Identifies itself (server GUID and name from this instance's server/info) and
+     registers in the Search Head KV store (replay_agents).
+  3. Publishes what it can replay (replay_catalog, replay_sources), every
+     `catalog_interval` seconds. Rows are keyed by this agent's GUID, so agents never
+     overwrite each other.
+  4. Pulls active jobs (replay_jobs). For each job that targets data this agent holds,
+     it creates its own task record (replay_tasks, key <job id>|<agent GUID>) and:
        - selects Ingest Actions output files by day directory + filename epochs
        - streams them, keeping only events whose "time" is inside
          [earliest, latest) (and optionally matching an index filter)
        - tags each event with the indexed field replay_job=<job id>
-       - writes the result to a work dir, then atomically renames it into the
-         staging dir that a [batch://] input with INDEXED_EXTRACTIONS = HEC reads.
-  4. Writes progress/status back to the job record.
+       - renames filtered files into the staging dir read by a [batch://] input with
+         INDEXED_EXTRACTIONS = HEC, so this forwarder sends them to its indexers
+  Agents never write the job record; the Search Head's "Replay - Track indexing"
+  search rolls the tasks up into the job status.
 
 Only the Python standard library is used. S3 access shells out to the AWS CLI.
 """
@@ -44,10 +51,19 @@ APP_NAME = "TA-replay_agent"
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JOBS = "replay_jobs"
 CATALOG = "replay_catalog"
+SOURCES = "replay_sources"
+TASKS = "replay_tasks"
+AGENTS = "replay_agents"
+ACTIVE_JOB_STATUSES = ["pending", "running"]
+STOP_JOB_STATUSES = ("cancel_requested", "cancelled", "failed", "rejected")
 
 # events_<epoch>_<epoch>_<n>_<seq>_<guid>.ndjson[.gz]
 # Observed order is <latest>_<earliest>; we take min/max so order does not matter.
 FILE_RE = re.compile(r"^events_(\d{9,11})_(\d{9,11})_.*\.ndjson(\.gz)?$")
+# The trailing GUID is the server GUID of the instance that wrote the file (the HF).
+GUID_RE = re.compile(
+    r"_([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\.ndjson(?:\.gz)?$")
+UNKNOWN_GUID = "UNKNOWN"
 S3_KEY_RE = re.compile(
     r"(?:^|/)year=(\d{4})/month=(\d{1,2})/day=(\d{1,2})/sourcetype=([^/]+)/(events_[^/]+)$"
 )
@@ -86,6 +102,8 @@ DEFAULTS = {
         "min_free_bytes": "10737418240",
         "catalog_interval": "900",
         "tag_events": "true",
+        "heartbeat_interval": "300",
+        "task_retention_days": "30",
         "log_level": "INFO",
     },
     "control": {
@@ -144,10 +162,9 @@ def _http(method, url, headers, body=None, timeout=60, ctx=None):
     return json.loads(raw)
 
 
-def get_sh_token(cfg, session_key):
-    """Read the Search Head auth token from this HF's storage/passwords."""
+def get_credential(cfg, session_key, name):
+    """Read a secret from this instance's storage/passwords (realm credential_realm)."""
     realm = cfg.get("control", "credential_realm")
-    name = cfg.get("control", "credential_name")
     entity = urllib.parse.quote("%s:%s:" % (realm, name), safe="")
     url = "%s/servicesNS/nobody/%s/storage/passwords/%s?output_mode=json" % (
         cfg.get("control", "local_uri").rstrip("/"), APP_NAME, entity)
@@ -156,6 +173,33 @@ def get_sh_token(cfg, session_key):
     res = _http("GET", url, {"Authorization": "Splunk %s" % session_key},
                 timeout=30, ctx=ctx)
     return res["entry"][0]["content"]["clear_password"]
+
+
+def get_sh_token(cfg, session_key):
+    """Read the Search Head auth token from this HF's storage/passwords."""
+    return get_credential(cfg, session_key, cfg.get("control", "credential_name"))
+
+
+def read_app_version(app_dir=APP_DIR):
+    try:
+        with open(os.path.join(app_dir, "default", "app.conf")) as f:
+            for line in f:
+                m = re.match(r"\s*version\s*=\s*(\S+)", line)
+                if m:
+                    return m.group(1)
+    except OSError:
+        pass
+    return ""
+
+
+def whoami(cfg, session_key):
+    """This instance's identity: server GUID (as used in dump filenames) and name."""
+    url = "%s/services/server/info?output_mode=json" % cfg.get("control", "local_uri").rstrip("/")
+    res = _http("GET", url, {"Authorization": "Splunk %s" % session_key}, timeout=30,
+                ctx=ssl._create_unverified_context())
+    c = res["entry"][0]["content"]
+    return {"guid": str(c["guid"]).upper(), "hostname": c.get("serverName") or socket.gethostname(),
+            "splunk_version": c.get("version", ""), "os": c.get("os_name", "")}
 
 
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -220,8 +264,11 @@ class KVStore:
             raise
 
     def put(self, coll, key, record):
+        """Insert or replace one record. (POST to .../<key> only updates existing
+        records and returns 404 for new keys; batch_save upserts by _key.)"""
         rec = {k: v for k, v in record.items() if k != "_user"}
-        return self._do("POST", self._url(coll, key), rec)
+        rec["_key"] = key
+        return self._do("POST", self._url(coll, suffix="batch_save"), [rec])
 
     def batch_save(self, coll, records, chunk=500):
         for i in range(0, len(records), chunk):
@@ -234,6 +281,29 @@ class KVStore:
 # --------------------------------------------------------------------------- #
 # Storage backends
 # --------------------------------------------------------------------------- #
+
+def parse_writer_guid(name):
+    """Server GUID of the HF that wrote the file (upper case), or UNKNOWN."""
+    m = GUID_RE.search(name)
+    return m.group(1).upper() if m else UNKNOWN_GUID
+
+
+def parse_forwarders(value):
+    """Job 'forwarders' field -> set of GUIDs, or None for all forwarders."""
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        items = value
+    else:
+        items = re.split(r"[\s,;|]+", str(value))
+    guids = {i.strip().upper() for i in items if i and i.strip()}
+    if not guids or "*" in guids:
+        return None
+    bad = [g for g in guids if g != UNKNOWN_GUID and not re.match(r"^[0-9A-F-]{36}$", g)]
+    if bad:
+        raise JobError("invalid forwarder GUID(s): %s" % ", ".join(sorted(bad)[:5]))
+    return guids
+
 
 def parse_file_range(name):
     m = FILE_RE.match(name)
@@ -401,17 +471,27 @@ def make_backend(cfg):
 
 
 # --------------------------------------------------------------------------- #
-# Catalog
+# Catalog and registration
 # --------------------------------------------------------------------------- #
 
-def build_catalog(backend, now=None):
+def build_catalog(backend, agent, now=None):
+    """Walk the store once and return (partitions, sources, served).
+
+    partitions: one row per sourcetype + UTC day held by this agent, with the number of
+                writing forwarders. Key <agent>|<sourcetype>|<day>.
+    sources:    one row per writing forwarder (server GUID in the filename) held by this
+                agent. Key <agent>|<writer>.
+    served:     {writer GUID: [sourcetypes]}, used to decide which jobs target this agent.
+    """
     now = int(now or time.time())
-    rows = {}
+    aguid = agent["guid"]
+    parts, guids_per_part, sources = {}, {}, {}
     for st, date, name, size in backend.walk():
         lo, hi = parse_file_range(name)
-        key = "%s|%s" % (st, date.isoformat())
-        r = rows.setdefault(key, {
-            "_key": key, "sourcetype": st, "day": date.isoformat(),
+        guid = parse_writer_guid(name)
+        key = "%s|%s|%s" % (aguid, st, date.isoformat())
+        r = parts.setdefault(key, {
+            "_key": key, "agent": aguid, "sourcetype": st, "day": date.isoformat(),
             "files": 0, "bytes": 0, "earliest": lo, "latest": hi,
             "backend": backend.name, "updated_at": now,
         })
@@ -419,26 +499,126 @@ def build_catalog(backend, now=None):
         r["bytes"] += size
         r["earliest"] = min(r["earliest"], lo)
         r["latest"] = max(r["latest"], hi)
-    return list(rows.values())
+        guids_per_part.setdefault(key, set()).add(guid)
+
+        s = sources.setdefault(guid, {
+            "_key": "%s|%s" % (aguid, guid), "agent": aguid, "agent_host": agent["hostname"],
+            "guid": guid, "sourcetypes": set(), "days": set(),
+            "files": 0, "bytes": 0, "earliest": lo, "latest": hi,
+            "backend": backend.name, "updated_at": now,
+        })
+        s["sourcetypes"].add(st)
+        s["days"].add(date.isoformat())
+        s["files"] += 1
+        s["bytes"] += size
+        s["earliest"] = min(s["earliest"], lo)
+        s["latest"] = max(s["latest"], hi)
+
+    for key, r in parts.items():
+        r["forwarders"] = len(guids_per_part[key])
+    for s in sources.values():
+        s["sourcetypes"] = sorted(s["sourcetypes"])
+        s["days"] = len(s["days"])
+    served = {g: s["sourcetypes"] for g, s in sources.items()}
+    return list(parts.values()), list(sources.values()), served
 
 
-def publish_catalog(kv, backend):
+def publish_catalog(kv, backend, agent):
+    """Publish this agent's rows and remove only this agent's stale rows."""
     now = int(time.time())
-    rows = build_catalog(backend, now)
-    kv.batch_save(CATALOG, rows)
-    kv.delete(CATALOG, {"updated_at": {"$lt": now}})
-    log.info("action=catalog_published partitions=%d", len(rows))
+    parts, sources, served = build_catalog(backend, agent, now)
+    kv.batch_save(CATALOG, parts)
+    kv.delete(CATALOG, {"agent": agent["guid"], "updated_at": {"$lt": now}})
+    kv.batch_save(SOURCES, sources)
+    kv.delete(SOURCES, {"agent": agent["guid"], "updated_at": {"$lt": now}})
+    # Rows written by agents before 1.2 have no agent field.
+    for coll in (CATALOG, SOURCES):
+        with contextlib.suppress(Exception):
+            kv.delete(coll, {"agent": None})
+    log.info("action=catalog_published partitions=%d forwarders=%d", len(parts), len(sources))
+    return served, {
+        "forwarders": len(sources),
+        "files": sum(s["files"] for s in sources),
+        "bytes": sum(s["bytes"] for s in sources),
+        "sourcetypes": sorted({st for s in sources for st in s["sourcetypes"]}),
+    }
+
+
+def heartbeat(kv, cfg, agent, totals=None):
+    """Register this forwarder (name, versions) in replay_agents."""
+    rec = kv.get(AGENTS, agent["guid"]) or {}
+    rec.update({
+        "guid": agent["guid"], "hostname": agent["hostname"],
+        "splunk_version": agent.get("splunk_version", ""), "os": agent.get("os", ""),
+        "agent_version": read_app_version(), "backend": cfg.get("agent", "backend"),
+        "last_seen": int(time.time()),
+    })
+    if totals is not None:
+        rec.update(totals)
+        rec["catalog_at"] = int(time.time())
+    kv.put(AGENTS, agent["guid"], rec)
+
+
+# --------------------------------------------------------------------------- #
+# Output: this forwarder's own [batch://] input
+# --------------------------------------------------------------------------- #
+
+class StagingSink:
+    """Filtered files are written to work/<job>/, then renamed into staging/<job>/,
+    where the [batch://] input indexes and deletes them."""
+    name = "batch"
+
+    def __init__(self, work_root, staging_root, job_key):
+        self.work = os.path.join(work_root, job_key)
+        self.staging = os.path.join(staging_root, job_key)
+        os.makedirs(self.work, exist_ok=True)
+        os.makedirs(self.staging, exist_ok=True)
+        self.tmp = self.f = None
+
+    def free_bytes(self):
+        return shutil.disk_usage(self.work).free
+
+    def begin(self, name):
+        self.name_out = name[:-3] if name.endswith(".gz") else name
+        self.tmp = os.path.join(self.work, self.name_out)
+        self.f = open(self.tmp, "wb")
+        return self.f
+
+    def end(self, kept):
+        self.f.close()
+        if kept:
+            # Same filesystem -> atomic; the batch input never sees partial files.
+            os.replace(self.tmp, os.path.join(self.staging, self.name_out))
+        else:
+            os.remove(self.tmp)
+
+    def close(self):
+        if self.f and not self.f.closed:
+            self.f.close()
+        shutil.rmtree(self.work, ignore_errors=True)
+
+    def done_message(self, events, files):
+        return "%d events from %d files handed to the batch input" % (events, files)
+
+
+def make_sink(cfg, job_key):
+    return StagingSink(cfg.get("agent", "work_dir"), cfg.get("agent", "staging_dir"), job_key)
 
 
 # --------------------------------------------------------------------------- #
 # Job processing
 # --------------------------------------------------------------------------- #
 
-def select_files(backend, sourcetype, earliest, latest, slack):
-    """Files whose (slack-widened) epoch range overlaps [earliest, latest)."""
+def select_files(backend, sourcetype, earliest, latest, slack, forwarders=None):
+    """Files whose (slack-widened) epoch range overlaps [earliest, latest).
+
+    forwarders: set of writer GUIDs to include, or None for all.
+    """
     picked = {}
     for day in utc_days(earliest - slack, latest + slack):
         for name, size, handle in backend.list_partition(day, sourcetype):
+            if forwarders is not None and parse_writer_guid(name) not in forwarders:
+                continue
             lo, hi = parse_file_range(name)
             if hi + slack > earliest and lo - slack < latest:
                 picked.setdefault(name, (lo, name, size, handle))
@@ -446,7 +626,10 @@ def select_files(backend, sourcetype, earliest, latest, slack):
 
 
 def filter_stream(src, dst, earliest, latest, index_filter, job_id, tag):
-    """Copy matching NDJSON lines from src to dst. Returns (kept, skipped, bad)."""
+    """Copy matching NDJSON lines from src to dst. Returns (kept, skipped, bad).
+
+    Events that already carry replay_job (output of an earlier replay that was written
+    to the dump again) are skipped, so a replay loop cannot multiply events."""
     kept = skipped = bad = 0
     match_all = index_filter in ("", "*")
     for raw in src:
@@ -465,17 +648,18 @@ def filter_stream(src, dst, earliest, latest, index_filter, job_id, tag):
         if not match_all and not fnmatch.fnmatchcase(str(ev.get("index", "")), index_filter):
             skipped += 1
             continue
+        fields = ev.get("fields")
+        if isinstance(fields, dict) and "replay_job" in fields:
+            skipped += 1
+            continue
         if tag:
-            fields = ev.get("fields")
             if not isinstance(fields, dict):
                 fields = {}
                 ev["fields"] = fields
             fields["replay_job"] = job_id
-            dst.write(json.dumps(ev, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-            dst.write(b"\n")
+            dst.write(json.dumps(ev, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n")
         else:
-            dst.write(line)
-            dst.write(b"\n")
+            dst.write(line + b"\n")
         kept += 1
     return kept, skipped, bad
 
@@ -487,28 +671,63 @@ def _num(v, name):
         raise JobError("invalid %s: %r" % (name, v))
 
 
-def update_job(kv, key, **changes):
-    cur = kv.get(JOBS, key)
-    if cur is None:
-        raise JobError("job record disappeared")
-    # Claiming a job: it must still be pending (it may have been cancelled meanwhile).
-    if changes.get("status") == "running" and cur.get("status") != "pending":
-        raise Cancelled()
-    cur.update(changes)
-    kv.put(JOBS, key, cur)
-    return cur
+def task_key(job_id, agent_guid):
+    return "%s|%s" % (job_id, agent_guid)
 
 
-def run_job(cfg, backend, kv, job):
+def is_targeted(job, served):
+    """Does this job need this agent? Same rule the replay_submit macro uses to count
+    agents_expected: the agent holds the sourcetype for at least one selected writer."""
+    st = str(job.get("sourcetype") or "").strip()
+    try:
+        fwd = parse_forwarders(job.get("forwarders"))
+    except JobError:
+        fwd = None  # invalid selection: take the job so the error is reported on a task
+    return any(st in sts and (fwd is None or w in fwd) for w, sts in served.items())
+
+
+def job_stopped(kv, job_key):
+    cur = kv.get(JOBS, job_key)
+    return cur is None or cur.get("status") in STOP_JOB_STATUSES
+
+
+class Task:
+    """This agent's share of one job (replay_tasks). Only this agent writes it."""
+    STATS = ("files_total", "files_done", "bytes_read", "events_staged",
+             "events_skipped", "events_bad")
+
+    def __init__(self, kv, job, agent, min_interval=5):
+        self.kv = kv
+        self.job_id = job.get("job_id") or job["_key"]
+        self.key = task_key(self.job_id, agent["guid"])
+        self.min_interval = min_interval
+        self.last_save = 0
+        self.rec = {"job_id": self.job_id, "agent": agent["guid"], "agent_host": agent["hostname"],
+                    "status": "running", "started_at": int(time.time()), "message": "selecting files"}
+        self.rec.update({k: 0 for k in self.STATS})
+        self.save(force=True)
+
+    def save(self, force=False, **changes):
+        self.rec.update(changes)
+        now = time.time()
+        if force or now - self.last_save >= self.min_interval:
+            self.rec["updated_at"] = int(now)
+            self.kv.put(TASKS, self.key, self.rec)
+            self.last_save = now
+
+    def finish(self, status, message):
+        self.save(force=True, status=status, finished_at=int(time.time()), message=message[:1000])
+
+
+def run_task(cfg, backend, kv, job, task, sink_factory):
     key = job["_key"]
-    job_id = job.get("job_id") or key
-    work_root = cfg.get("agent", "work_dir")
-    staging_root = cfg.get("agent", "staging_dir")
+    job_id = task.job_id
     slack = cfg.getint("agent", "file_slack_seconds")
     tag = cfg.getbool("agent", "tag_events")
 
     sourcetype = str(job.get("sourcetype") or "").strip()
     index_filter = str(job.get("index_filter") or "*").strip()
+    forwarders = parse_forwarders(job.get("forwarders"))
     earliest = _num(job.get("earliest"), "earliest")
     latest = _num(job.get("latest"), "latest")
     if not sourcetype or sourcetype == "*" or "/" in sourcetype or ".." in sourcetype:
@@ -516,98 +735,78 @@ def run_job(cfg, backend, kv, job):
     if earliest <= 0 or latest <= earliest:
         raise JobError("invalid time range %s - %s" % (earliest, latest))
 
-    update_job(kv, key, status="running", started_at=int(time.time()),
-               agent_host=socket.gethostname(), message="selecting files")
-    files = select_files(backend, sourcetype, earliest, latest, slack)
+    files = select_files(backend, sourcetype, earliest, latest, slack, forwarders)
     total = sum(s for _, s, _ in files)
-    log.info("action=job_selected job=%s sourcetype=%s earliest=%d latest=%d files=%d bytes=%d",
-             job_id, sourcetype, earliest, latest, len(files), total)
+    log.info("action=task_selected job=%s sourcetype=%s earliest=%d latest=%d forwarders=%s "
+             "files=%d bytes=%d", job_id, sourcetype, earliest, latest,
+             "all" if forwarders is None else len(forwarders), len(files), total)
     if not files:
-        update_job(kv, key, status="staged", finished_at=int(time.time()),
-                   files_total=0, files_done=0, events_staged=0,
-                   message="no files found for this sourcetype and time range")
+        task.finish("done", "no files in this time range")
         return
 
     max_bytes = cfg.getint("agent", "max_bytes_per_job")
     if total > max_bytes:
         raise JobError("selected %d bytes exceeds max_bytes_per_job=%d" % (total, max_bytes))
 
-    work = os.path.join(work_root, key)
-    staging = os.path.join(staging_root, key)
-    os.makedirs(work, exist_ok=True)
-    os.makedirs(staging, exist_ok=True)
-    free = shutil.disk_usage(work).free
-    if free - total < cfg.getint("agent", "min_free_bytes"):
-        raise JobError("not enough free space in %s (free=%d, need=%d)" % (work, free, total))
-
-    stats = {"files_total": len(files), "files_done": 0, "bytes_read": 0,
-             "events_staged": 0, "events_skipped": 0, "events_bad": 0}
-    update_job(kv, key, message="staging", **stats)
+    sink = sink_factory(key)
     try:
+        free = sink.free_bytes()
+        if free is not None and free - total < cfg.getint("agent", "min_free_bytes"):
+            raise JobError("not enough free disk space (free=%d, need=%d)" % (free, total))
+        task.save(force=True, files_total=len(files), message="replaying")
         for name, size, handle in files:
-            cur = kv.get(JOBS, key)
-            if cur is None or cur.get("status") == "cancel_requested":
+            if job_stopped(kv, key):
                 raise Cancelled()
-            out_name = name[:-3] if name.endswith(".gz") else name
-            tmp = os.path.join(work, out_name)
-            with backend.open(handle, work) as src, open(tmp, "wb") as dst:
-                kept, skipped, bad = filter_stream(
-                    src, dst, earliest, latest, index_filter, job_id, tag)
-            if kept:
-                # Same filesystem -> atomic; the batch input never sees partial files.
-                os.replace(tmp, os.path.join(staging, out_name))
-            else:
-                os.remove(tmp)
-            stats["files_done"] += 1
-            stats["bytes_read"] += size
-            stats["events_staged"] += kept
-            stats["events_skipped"] += skipped
-            stats["events_bad"] += bad
-            update_job(kv, key, **stats)
+            with backend.open(handle, cfg.get("agent", "work_dir")) as src:
+                dst = sink.begin(name)
+                kept, skipped, bad = filter_stream(src, dst, earliest, latest, index_filter, job_id, tag)
+                sink.end(kept)
+            r = task.rec
+            task.save(files_done=r["files_done"] + 1, bytes_read=r["bytes_read"] + size,
+                      events_staged=r["events_staged"] + kept,
+                      events_skipped=r["events_skipped"] + skipped,
+                      events_bad=r["events_bad"] + bad)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        sink.close()
 
-    update_job(kv, key, status="staged", finished_at=int(time.time()),
-               message="%d events from %d files handed to the batch input"
-               % (stats["events_staged"], stats["files_done"]), **stats)
-    log.info("action=job_staged job=%s %s", job_id,
-             " ".join("%s=%s" % kv_ for kv_ in stats.items()))
+    task.finish("done", sink.done_message(task.rec["events_staged"], task.rec["files_done"]))
+    log.info("action=task_done job=%s %s", job_id,
+             " ".join("%s=%s" % (k, task.rec[k]) for k in Task.STATS))
 
 
-def process_pending(cfg, backend, kv):
-    jobs = kv.query(JOBS, {"status": "pending"}, sort="submitted_at")
+def process_jobs(cfg, backend, kv, agent, served, sink_factory):
+    jobs = kv.query(JOBS, {"status": {"$in": ACTIVE_JOB_STATUSES}}, sort="submitted_at")
+    if not jobs:
+        return
+    ids = [j.get("job_id") or j["_key"] for j in jobs]
+    done = {t.get("job_id") for t in kv.query(TASKS, {"agent": agent["guid"], "job_id": {"$in": ids}})}
     for job in jobs:
-        key = job["_key"]
+        job_id = job.get("job_id") or job["_key"]
+        if job_id in done or not is_targeted(job, served):
+            continue
+        task = Task(kv, job, agent)
         try:
-            run_job(cfg, backend, kv, job)
+            run_task(cfg, backend, kv, job, task, sink_factory)
         except Cancelled:
-            log.info("action=job_cancelled job=%s", key)
-            _safe_update(kv, key, status="cancelled", finished_at=int(time.time()),
-                         message="cancelled; files already staged will still be indexed")
-        except Exception as e:  # noqa: BLE001 - report every failure on the job
-            log.exception("action=job_failed job=%s", key)
-            _safe_update(kv, key, status="failed", finished_at=int(time.time()),
-                         message=str(e)[:1000])
+            log.info("action=task_cancelled job=%s", job_id)
+            task.finish("cancelled", "cancelled; events already handed over will still be indexed")
+        except Exception as e:  # noqa: BLE001 - report every failure on the task
+            log.exception("action=task_failed job=%s", job_id)
+            with contextlib.suppress(Exception):
+                task.finish("failed", str(e))
 
 
-def _safe_update(kv, key, **changes):
-    try:
-        cur = kv.get(JOBS, key)
-        if cur is not None:
-            cur.update(changes)
-            kv.put(JOBS, key, cur)
-    except Exception:  # noqa: BLE001
-        log.exception("action=status_update_failed job=%s", key)
+def recover_stale(kv, agent):
+    """We hold the lock, so any 'running' task of this agent is orphaned."""
+    for t in kv.query(TASKS, {"agent": agent["guid"], "status": "running"}):
+        log.warning("action=task_orphaned task=%s", t["_key"])
+        t.update(status="failed", finished_at=int(time.time()), updated_at=int(time.time()),
+                 message="agent stopped while the task was running; resubmit the job")
+        kv.put(TASKS, t["_key"], t)
 
 
-def recover_stale(kv):
-    """We hold the lock, so any 'running' job owned by this host is orphaned."""
-    host = socket.gethostname()
-    for job in kv.query(JOBS, {"status": {"$in": ["running", "cancel_requested"]},
-                               "agent_host": host}):
-        log.warning("action=job_orphaned job=%s", job["_key"])
-        _safe_update(kv, job["_key"], status="failed", finished_at=int(time.time()),
-                     message="agent stopped while the job was running; resubmit")
+def purge_old_tasks(kv, agent, days):
+    kv.delete(TASKS, {"agent": agent["guid"], "updated_at": {"$lt": int(time.time()) - days * 86400}})
 
 
 def cleanup_staging(staging_root, min_age=600):
@@ -639,18 +838,42 @@ def setup_logging(level):
     log.setLevel(getattr(logging, level.upper(), logging.INFO))
 
 
-def catalog_due(state_path, interval):
+def load_state(path):
     try:
-        with open(state_path) as f:
-            last = json.load(f).get("catalog_at", 0)
+        with open(path) as f:
+            return json.load(f)
     except (OSError, ValueError):
-        last = 0
-    return time.time() - last >= interval
+        return {}
 
 
-def mark_catalog(state_path):
-    with open(state_path, "w") as f:
-        json.dump({"catalog_at": int(time.time())}, f)
+def save_state(path, state):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f)
+    os.replace(tmp, path)
+
+
+def run_once(cfg, kv, backend, agent, state, sink_factory, now=None):
+    """One agent cycle. Returns the updated state."""
+    now = now or time.time()
+    recover_stale(kv, agent)
+    if now - state.get("catalog_at", 0) >= cfg.getint("agent", "catalog_interval") or "served" not in state:
+        try:
+            served, totals = publish_catalog(kv, backend, agent)
+            state.update(catalog_at=int(now), served=served)
+            heartbeat(kv, cfg, agent, totals)
+            state["heartbeat_at"] = int(now)
+            purge_old_tasks(kv, agent, cfg.getint("agent", "task_retention_days"))
+        except Exception:  # noqa: BLE001
+            log.exception("action=catalog_failed")
+    elif now - state.get("heartbeat_at", 0) >= cfg.getint("agent", "heartbeat_interval"):
+        try:
+            heartbeat(kv, cfg, agent)
+            state["heartbeat_at"] = int(now)
+        except Exception:  # noqa: BLE001 - registration must never block replays
+            log.exception("action=heartbeat_failed")
+    process_jobs(cfg, backend, kv, agent, state.get("served") or {}, sink_factory)
+    return state
 
 
 def main():
@@ -670,21 +893,16 @@ def main():
         return 0
 
     try:
+        agent = whoami(cfg, session_key)
         uri, auth, verify = control_target(cfg, session_key)
         kv = KVStore(uri, cfg.get("control", "app"), auth, verify=verify,
                      ca_file=cfg.get("control", "ca_file"),
                      timeout=cfg.getint("control", "request_timeout"))
         backend = make_backend(cfg)
-
-        recover_stale(kv)
-        state = os.path.join(work_root, ".state.json")
-        if catalog_due(state, cfg.getint("agent", "catalog_interval")):
-            try:
-                publish_catalog(kv, backend)
-                mark_catalog(state)
-            except Exception:  # noqa: BLE001
-                log.exception("action=catalog_failed")
-        process_pending(cfg, backend, kv)
+        state_path = os.path.join(work_root, ".state.json")
+        state = run_once(cfg, kv, backend, agent, load_state(state_path),
+                         lambda job_key: make_sink(cfg, job_key))
+        save_state(state_path, state)
         cleanup_staging(staging_root)
     except Exception:  # noqa: BLE001
         log.exception("action=run_failed")

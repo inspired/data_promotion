@@ -10,6 +10,8 @@ max_bytes_per_job = <integer>
 min_free_bytes = <integer>
 catalog_interval = <integer>
 tag_events = <boolean>
+heartbeat_interval = <integer>
+task_retention_days = <integer>
 log_level = <DEBUG|INFO|WARNING|ERROR>
 
 [control]

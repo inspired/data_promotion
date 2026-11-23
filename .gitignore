@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .DS_Store
 dist/
+ui/node_modules/
+replay_control/appserver/static/pages/
+ui/dev/out/

@@ -18,6 +18,38 @@ export = none
 access = read : [ replay_user, admin ], write : [ replay_user, admin ]
 export = none
 
+[collections/replay_sources]
+access = read : [ replay_user, admin ], write : [ replay_user, admin ]
+export = none
+
+[transforms/replay_sources]
+access = read : [ replay_user, admin ], write : [ replay_user, admin ]
+export = none
+
+[collections/replay_tasks]
+access = read : [ replay_user, admin ], write : [ replay_user, admin ]
+export = none
+
+[transforms/replay_tasks]
+access = read : [ replay_user, admin ], write : [ replay_user, admin ]
+export = none
+
+[collections/replay_agents]
+access = read : [ replay_user, admin ], write : [ replay_user, admin ]
+export = none
+
+[transforms/replay_agents]
+access = read : [ replay_user, admin ], write : [ replay_user, admin ]
+export = none
+
+[collections/replay_forwarder_names]
+access = read : [ replay_user, admin ], write : [ replay_user, admin ]
+export = none
+
+[transforms/replay_forwarder_names]
+access = read : [ replay_user, admin ], write : [ replay_user, admin ]
+export = none
+
 [macros]
 access = read : [ replay_user, admin ], write : [ admin ]
 export = none
