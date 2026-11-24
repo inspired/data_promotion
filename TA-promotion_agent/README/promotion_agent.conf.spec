@@ -5,6 +5,8 @@ s3_uri = <s3://bucket/prefix>
 aws_cli = <path>
 work_dir = <path>
 staging_dir = <path>
+* Must be inside $SPLUNK_HOME/var/spool/splunk (Splunk's built-in stash_hec input) and on
+  the same filesystem as work_dir.
 file_slack_seconds = <integer>
 max_bytes_per_job = <integer>
 min_free_bytes = <integer>

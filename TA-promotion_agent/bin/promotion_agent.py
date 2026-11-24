@@ -2,7 +2,7 @@
 """
 Data promotion agent. Runs inside every Heavy Forwarder whose Ingest Actions output should
 be promotable, reads that forwarder's own dump directory and promotes it through the
-forwarder's own [batch://] input. Any number of forwarders work against one Search Head.
+forwarder's built-in stash_hec input. Any number of forwarders work against one Search Head.
 
 Runs as a Splunk scripted input (passAuth = splunk-system-user). Each run:
   1. Takes a non-blocking lock so runs never overlap.
@@ -18,8 +18,10 @@ Runs as a Splunk scripted input (passAuth = splunk-system-user). Each run:
          [earliest, latest) (and optionally matching an index filter)
        - tags each event with the indexed field promote_job=<job id>
        - sets the event's index to the job's destination index, if the job has one
-       - renames filtered files into the staging dir read by a [batch://] input with
-         INDEXED_EXTRACTIONS = HEC, so this forwarder sends them to its indexers
+       - renames filtered files (*.stash_hec) into the staging dir below
+         $SPLUNK_HOME/var/spool/splunk, where Splunk's built-in [batch://...stash_hec]
+         input (INDEXED_EXTRACTIONS = hec) reads them, so this forwarder sends them to
+         its indexers
   Agents never write the job record; the Search Head's "Promotion - Track indexing"
   search rolls the tasks up into the job status.
 
@@ -104,7 +106,7 @@ DEFAULTS = {
         "s3_uri": "",
         "aws_cli": "aws",
         "work_dir": "$SPLUNK_HOME/var/promotion/work",
-        "staging_dir": "$SPLUNK_HOME/var/promotion/staging",
+        "staging_dir": "$SPLUNK_HOME/var/spool/splunk/promotion",
         "file_slack_seconds": "3600",
         "max_bytes_per_job": "53687091200",
         "min_free_bytes": "10737418240",
@@ -564,13 +566,26 @@ def heartbeat(kv, cfg, agent, totals=None):
 
 
 # --------------------------------------------------------------------------- #
-# Output: this forwarder's own [batch://] input
+# Output: Splunk's built-in stash_hec input on this forwarder
 # --------------------------------------------------------------------------- #
+
+# Splunk's default inputs.conf reads every file under $SPLUNK_HOME/var/spool/splunk whose
+# name ends in "stash_hec" with sourcetype stash_hec (INDEXED_EXTRACTIONS = hec), then
+# deletes it. Each event's own time, host, source, sourcetype, index and fields apply.
+STAGED_SUFFIX = ".stash_hec"
+
+
+def staged_name(name):
+    """events_..._<guid>.ndjson[.gz] -> events_..._<guid>.stash_hec"""
+    for ext in (".gz", ".ndjson"):
+        if name.endswith(ext):
+            name = name[:-len(ext)]
+    return name + STAGED_SUFFIX
+
 
 class StagingSink:
     """Filtered files are written to work/<job>/, then renamed into staging/<job>/,
-    where the [batch://] input indexes and deletes them."""
-    name = "batch"
+    where Splunk's stash_hec batch input indexes and deletes them."""
 
     def __init__(self, work_root, staging_root, job_key):
         self.work = os.path.join(work_root, job_key)
@@ -583,7 +598,7 @@ class StagingSink:
         return shutil.disk_usage(self.work).free
 
     def begin(self, name):
-        self.name_out = name[:-3] if name.endswith(".gz") else name
+        self.name_out = staged_name(name)
         self.tmp = os.path.join(self.work, self.name_out)
         self.f = open(self.tmp, "wb")
         return self.f
@@ -591,7 +606,8 @@ class StagingSink:
     def end(self, kept):
         self.f.close()
         if kept:
-            # Same filesystem -> atomic; the batch input never sees partial files.
+            # Same filesystem -> atomic; the input never sees partial files (and the work
+            # file's name does not end in stash_hec, so it is never read early).
             os.replace(self.tmp, os.path.join(self.staging, self.name_out))
         else:
             os.remove(self.tmp)
@@ -602,7 +618,7 @@ class StagingSink:
         shutil.rmtree(self.work, ignore_errors=True)
 
     def done_message(self, events, files):
-        return "%d events from %d files handed to the batch input" % (events, files)
+        return "%d events from %d files handed to the stash_hec input" % (events, files)
 
 
 def make_sink(cfg, job_key):
@@ -632,7 +648,8 @@ def select_files(backend, sourcetype, earliest, latest, slack, forwarders=None):
 def filter_stream(src, dst, earliest, latest, index_filter, job_id, tag, target_index=None):
     """Copy matching NDJSON lines from src to dst. Returns (kept, skipped, bad).
 
-    Events that already carry promote_job (output of an earlier promotion that was written to the dump again) are skipped, so a promotion loop cannot multiply events.
+    Events that already carry promote_job (output of an earlier promotion that was written
+    to the dump again) are skipped, so a promotion loop cannot multiply events.
     target_index: send every event to this index instead of its own (index_filter still
     matches the original index)."""
     kept = skipped = bad = 0
@@ -825,7 +842,7 @@ def purge_old_tasks(kv, agent, days):
 
 
 def cleanup_staging(staging_root, min_age=600):
-    """Remove empty per-job staging dirs once the batch input has drained them."""
+    """Remove empty per-job staging dirs once the stash_hec input has drained them."""
     if not os.path.isdir(staging_root):
         return
     now = time.time()

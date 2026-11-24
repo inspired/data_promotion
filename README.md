@@ -13,8 +13,8 @@ Search Head (promotion_control)                  Every HF with Ingest Actions ou
             promotion_tasks  ◄─────────────────────     write its own task ──► promotion_tasks
             promotion_agents, promotion_catalog, ...    select files (day dirs + filename epochs)
         ▲                                               keep earliest <= time < latest, add promote_job=<id>
-  "Promotion - Track indexing" (every minute):          rename into staging/<job>/ ─► [batch://] input of
-    tasks → job status, tstats → indexed count          this HF ─► its normal outputs ─► indexers
+  "Promotion - Track indexing" (every minute):          rename into var/spool/splunk/promotion/<job>/*.stash_hec
+    tasks → job status, tstats → indexed count          ─► Splunk's built-in stash_hec input ─► outputs ─► indexers
 ```
 
 Source files are never modified or deleted: the forwarder only reads them.
@@ -22,7 +22,8 @@ Source files are never modified or deleted: the forwarder only reads them.
 ## How it works with many forwarders
 Ingest Actions writes to each HF's local disk, so every such HF runs `TA-promotion_agent`
 (deploy it with the Deployment Server) and promotes **its own** files through its own
-batch input and outputs. Control stays central on the Search Head.
+Splunk's built-in `stash_hec` batch input and its outputs. Control stays central on the
+Search Head.
 
 - **Identity:** each forwarder reads its own server GUID and name from `server/info` and
   registers in `promotion_agents`. That GUID is the one at the end of every dump filename it
@@ -155,8 +156,12 @@ search every index you promote into, including `_internal` if you promote that.
   are dropped (or go to `lastChanceIndex`).
 - **License:** promoted data counts against ingest license.
 - **Retention:** events older than the index's `frozenTimePeriodInSecs` are
-  frozen almost immediately. Events older than `MAX_DAYS_AGO` (default 2000 days)
+  frozen almost immediately. Events older than `MAX_DAYS_AGO` (10000 days for `stash_hec`)
   may get their timestamps changed.
+- **Input:** the agent adds no input of its own. Staged files go to Splunk's built-in
+  `[batch://$SPLUNK_HOME/var/spool/splunk/...stash_hec]` input (sourcetype `stash_hec`,
+  `INDEXED_EXTRACTIONS = hec`), the one `collect output_format=hec` uses. Do not disable
+  it on the HFs. Each event keeps its own sourcetype, host, source and index.
 - **Precision:** files are hourly. Every event is filtered on its own `time`, so
   the range is exact to the second. `file_slack_seconds` (default 1h) also scans
   neighbouring files to catch late-arriving events.

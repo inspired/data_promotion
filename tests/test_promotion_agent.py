@@ -169,6 +169,13 @@ class TestFileSelection(Base):
         self.assertEqual(len(ra.select_files(self.backend, "splunkd", start, start + 60, 0)), 1)
 
 
+class TestStaging(unittest.TestCase):
+    def test_staged_name_matches_builtin_stash_hec_input(self):
+        base = "events_1795071600_1795068000_0_000000_%s" % GUID
+        for src in (base + ".ndjson", base + ".ndjson.gz"):
+            self.assertEqual(ra.staged_name(src), base + ".stash_hec")
+
+
 class TestRunJob(Base):
     def test_filters_by_event_time_and_tags(self):
         evs = [event(H06 + m * 60) for m in range(60)]
@@ -205,7 +212,7 @@ class TestRunJob(Base):
         self.agent_run()
         out = self.staged_events()
         self.assertEqual(out[0]["fields"], {"promote_job": "job1"})
-        self.assertTrue(all(n.endswith(".ndjson") for n in
+        self.assertTrue(all(n.endswith(".stash_hec") for n in
                             os.listdir(os.path.join(self.cfg.get("agent", "staging_dir"), "job1"))))
 
     def test_skips_events_from_earlier_promotions(self):
