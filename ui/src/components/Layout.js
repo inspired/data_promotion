@@ -59,6 +59,13 @@ export const SidePanelBody = styled.div`
     gap: ${variables.spacingLarge};
     padding: ${variables.spacingLarge} ${variables.spacingXLarge} ${variables.spacingXLarge};
     box-sizing: border-box;
+
+    /* Children keep their natural height and the body scrolls. Without this, a child with
+       overflow: hidden (e.g. DefinitionList) shrinks to fit and its content spills under
+       whatever follows it. */
+    & > * {
+        flex-shrink: 0;
+    }
 `;
 
 /** Keeps numbers like "1,234 of 5,678" on one line in narrow table cells. */
