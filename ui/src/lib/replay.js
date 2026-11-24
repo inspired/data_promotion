@@ -14,6 +14,11 @@ export const AGENTS = 'replay_agents';
 /** An agent that has not sent a heartbeat for this long is shown as not reporting. */
 export const AGENT_STALE_SECONDS = 15 * 60;
 
+const num = (v) => {
+    const n = typeof v === 'number' ? v : parseFloat(v);
+    return Number.isFinite(n) ? n : null;
+};
+
 /** Available data per sourcetype and UTC day, summed over all agents (runs on the SH). */
 export const CATALOG_SEARCH = '| inputlookup replay_catalog | search agent=* '
     + '| stats sum(files) AS files sum(bytes) AS bytes min(earliest) AS earliest max(latest) AS latest '
@@ -22,6 +27,8 @@ export const CATALOG_SEARCH = '| inputlookup replay_catalog | search agent=* '
 // Values that end up inside SPL macro arguments are restricted to safe characters.
 const SOURCETYPE_RE = /^[A-Za-z0-9_.:\-]+$/;
 const INDEX_FILTER_RE = /^[A-Za-z0-9_*\-]+$/;
+// Splunk index names: lowercase letters, digits, _ and -, not starting with - (max 80).
+const INDEX_NAME_RE = /^[a-z0-9_][a-z0-9_-]{0,79}$/;
 const JOB_ID_RE = /^[A-Za-z0-9_\-]+$/;
 const GUID_RE = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/;
 
@@ -38,6 +45,14 @@ export function validateSourcetype(st) {
 export function validateIndexFilter(idx) {
     if (!idx) return null;
     if (!INDEX_FILTER_RE.test(idx)) return 'Use letters, digits, _, - and * only.';
+    return null;
+}
+
+/** Destination index: empty means each event's original index. */
+export function validateTargetIndex(idx) {
+    const v = (idx || '').trim();
+    if (!v) return null;
+    if (!INDEX_NAME_RE.test(v)) return 'Use lowercase letters, digits, _ and - only (not starting with -).';
     return null;
 }
 
@@ -66,8 +81,9 @@ export function parseForwarders(value) {
 /**
  * SPL that submits a job through the replay_submit macro (it validates and writes to KV).
  * forwarders: array of writer GUIDs; empty means all forwarders.
+ * targetIndex: destination index; empty means each event's original index.
  */
-export function submitSearch(sourcetype, indexFilter, forwarders = []) {
+export function submitSearch(sourcetype, indexFilter, forwarders = [], targetIndex = '') {
     const st = validateSourcetype(sourcetype);
     if (st) throw new Error(st);
     const idx = indexFilter || '*';
@@ -77,7 +93,40 @@ export function submitSearch(sourcetype, indexFilter, forwarders = []) {
     const bad = guids.filter((g) => !isValidGuid(g));
     if (bad.length) throw new Error(`Invalid agent GUID: ${bad[0]}`);
     const fwd = guids.length ? guids.join(' ') : '*';
-    return `| \`replay_submit(${sourcetype}, ${idx}, ${fwd})\``;
+    const target = (targetIndex || '').trim();
+    const te = validateTargetIndex(target);
+    if (te) throw new Error(`Destination index: ${te}`);
+    return `| \`replay_submit(${sourcetype}, ${idx}, ${fwd}, ${target || '*'})\``;
+}
+
+/**
+ * Search (for the Search app) that shows a job's replayed events: its destination index
+ * if it had one, otherwise every index.
+ */
+export function eventsSearch(job) {
+    if (!job || !isValidJobId(job.job_id)) throw new Error('Invalid job id');
+    const target = (job.target_index || '').trim();
+    const where = target && !validateTargetIndex(target) ? `index=${target}` : '(index=* OR index=_*)';
+    return `${where} replay_job="${job.job_id}"`;
+}
+
+/** Query parameters for app/search/search that open a job's events over its time range. */
+export function searchParams(job) {
+    const e = num(job && job.earliest);
+    const l = num(job && job.latest);
+    const params = { q: `search ${eventsSearch(job)}` };
+    if (e !== null && l !== null) {
+        params.earliest = String(Math.floor(e));
+        params.latest = String(Math.ceil(l) + 1);
+    }
+    return params;
+}
+
+/** Whether a job's events can be looked at in Search (it finished and something was indexed). */
+export function canOpenInSearch(job) {
+    if (!job || !isValidJobId(job.job_id)) return false;
+    if (job.status === 'completed') return true;
+    return job.status === 'incomplete' && (num(job.events_indexed) || 0) > 0;
 }
 
 /** SPL that counts indexed events for one job, broken down by index/sourcetype/host. */
@@ -143,11 +192,6 @@ export function cancelledStatus(status) {
     if (status === 'running') return 'cancel_requested';
     return null;
 }
-
-const num = (v) => {
-    const n = typeof v === 'number' ? v : parseFloat(v);
-    return Number.isFinite(n) ? n : null;
-};
 
 /**
  * Progress for the standard Progress bar, in the unit of the current phase:
@@ -264,14 +308,16 @@ const asList = (v) => (Array.isArray(v) ? v : [v].filter(Boolean));
  * files, so the server GUID in the dump filenames is the forwarder's own GUID.
  * Names fall back to indexer metrics (replay_forwarder_names) for forwarders that have
  * not registered. status: 'reporting' | 'stale' (no heartbeat for 15 min) | 'unregistered'.
+ * agents: GUIDs of the agents that hold this forwarder's files (normally just its own).
  */
 export function buildForwarders(sources, agents = [], names = [], now = Date.now() / 1000) {
     const byGuid = {};
     const row = (guid) => byGuid[guid] || (byGuid[guid] = {
-        guid, sourcetypes: [], days: 0, files: 0, bytes: 0, earliest: null, latest: null,
+        guid, agents: [], sourcetypes: [], days: 0, files: 0, bytes: 0, earliest: null, latest: null,
     });
     sources.filter((s) => s.guid).forEach((s) => {
         const r = row(upper(s.guid));
+        if (s.agent && !r.agents.includes(upper(s.agent))) r.agents.push(upper(s.agent));
         r.sourcetypes = [...new Set([...r.sourcetypes, ...asList(s.sourcetypes)])].sort();
         r.days = Math.max(r.days, num(s.days) || 0);
         r.files += num(s.files) || 0;
@@ -306,6 +352,15 @@ export function buildForwarders(sources, agents = [], names = [], now = Date.now
             };
         })
         .sort((x, y) => x.label.localeCompare(y.label));
+}
+
+/** Jobs that included one forwarder: all-forwarder jobs and jobs that listed its GUID. */
+export function jobsForForwarder(jobs, guid) {
+    const g = upper(guid);
+    return jobs.filter((j) => {
+        const sel = parseForwarders(j.forwarders);
+        return !sel.length || sel.includes(g);
+    });
 }
 
 export function forwardersWithSourcetype(forwarders, sourcetype) {

@@ -108,7 +108,11 @@ fs_root = /dumps/splunk9.4-filesystemout
   agents (search by hostname or GUID; empty = all) and an index filter, then
   **Replay**. Click a job for details, progress per agent, **Cancel job**,
   **Replay again**, and **Count now** (indexed events by index / sourcetype / host).
-  Tabs list the available data and the agents (with heartbeat state).
+  Tabs list the available data and the agents (with heartbeat state). A completed job has
+  **Open in Search** (its events, `replay_job=<id>`, over the job's time range).
+- **Agent view:** click an agent on the **Agents** tab to see the datasets (sourcetypes)
+  it holds. Pick one to see it on the timeline, select a range and **Replay from <agent>**:
+  the job targets that agent only.
 - **Timeline:** click a sourcetype or a day on **Available data** (or **Pick on a timeline**
   in the form) to open a timeline of that sourcetype: the data the forwarders hold per
   UTC day, and earlier replays of it as bars colored by status (click one to open it).
@@ -119,6 +123,8 @@ fs_root = /dumps/splunk9.4-filesystemout
 - Or from search (the time picker sets the range):
   ``| `replay_submit(splunkd, *, *)` `` (all forwarders) or
   ``| `replay_submit(splunkd, *, 5A8D3399-FD7B-41CB-B0A9-23CC0BCE0EF8 BF6301FD-4484-45FA-802E-F657F1AFB5F7)` ``.
+  A fourth argument sets the destination index (`*` = original):
+  ``| `replay_submit(splunkd, *, *, replay_test)` ``.
   ``replay_submit(<sourcetype>, <index filter>)`` still works and means all forwarders.
 - Cancel: ``| `replay_cancel(<job_id>)` ``
 - Verify: ``| `replay_verify(<job_id>)` `` or search `replay_job=<job_id>`.
@@ -142,8 +148,14 @@ Forwarders never search. **Replay - Track indexing** (every minute) counts index
 search every index you replay into, including `_internal` if you replay that.
 
 ## Things to know
-- **Duplicates:** replays go to the *original* index. Replaying a range that is
-  still in Splunk duplicates those events; tell them apart with `replay_job`.
+- **Duplicates:** replays go to the *original* index unless a destination index is set.
+  Replaying a range that is still in Splunk duplicates those events; tell them apart
+  with `replay_job`.
+- **Destination index:** a job can send every event to one index instead (the index
+  filter still matches the original index). That index must already exist on the
+  indexers: Splunk cannot check it from the Search Head, and events for a missing index
+  are dropped (or go to `lastChanceIndex`). Needs `TA-replay_agent` 1.3.0 or later; older
+  agents replay to the original index.
 - **License:** replayed data counts against ingest license.
 - **Retention:** events older than the index's `frozenTimePeriodInSecs` are
   frozen almost immediately. Events older than `MAX_DAYS_AGO` (default 2000 days)

@@ -17,6 +17,7 @@ Runs as a Splunk scripted input (passAuth = splunk-system-user). Each run:
        - streams them, keeping only events whose "time" is inside
          [earliest, latest) (and optionally matching an index filter)
        - tags each event with the indexed field replay_job=<job id>
+       - sets the event's index to the job's destination index, if the job has one
        - renames filtered files into the staging dir read by a [batch://] input with
          INDEXED_EXTRACTIONS = HEC, so this forwarder sends them to its indexers
   Agents never write the job record; the Search Head's "Replay - Track indexing"
@@ -73,6 +74,9 @@ DIR_RE = {
     "day": re.compile(r"^day=(\d{1,2})$"),
     "sourcetype": re.compile(r"^sourcetype=(.+)$"),
 }
+
+# Splunk index names: lowercase letters, digits, _ and -, not starting with - (max 80).
+INDEX_NAME_RE = re.compile(r"^[a-z0-9_][a-z0-9_-]{0,79}$")
 
 log = logging.getLogger("replay_agent")
 
@@ -625,11 +629,13 @@ def select_files(backend, sourcetype, earliest, latest, slack, forwarders=None):
     return [(n, s, h) for _, n, s, h in sorted(picked.values())]
 
 
-def filter_stream(src, dst, earliest, latest, index_filter, job_id, tag):
+def filter_stream(src, dst, earliest, latest, index_filter, job_id, tag, target_index=None):
     """Copy matching NDJSON lines from src to dst. Returns (kept, skipped, bad).
 
     Events that already carry replay_job (output of an earlier replay that was written
-    to the dump again) are skipped, so a replay loop cannot multiply events."""
+    to the dump again) are skipped, so a replay loop cannot multiply events.
+    target_index: send every event to this index instead of its own (index_filter still
+    matches the original index)."""
     kept = skipped = bad = 0
     match_all = index_filter in ("", "*")
     for raw in src:
@@ -652,11 +658,14 @@ def filter_stream(src, dst, earliest, latest, index_filter, job_id, tag):
         if isinstance(fields, dict) and "replay_job" in fields:
             skipped += 1
             continue
-        if tag:
-            if not isinstance(fields, dict):
-                fields = {}
-                ev["fields"] = fields
-            fields["replay_job"] = job_id
+        if tag or target_index:
+            if tag:
+                if not isinstance(fields, dict):
+                    fields = {}
+                    ev["fields"] = fields
+                fields["replay_job"] = job_id
+            if target_index:
+                ev["index"] = target_index
             dst.write(json.dumps(ev, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n")
         else:
             dst.write(line + b"\n")
@@ -727,6 +736,9 @@ def run_task(cfg, backend, kv, job, task, sink_factory):
 
     sourcetype = str(job.get("sourcetype") or "").strip()
     index_filter = str(job.get("index_filter") or "*").strip()
+    target_index = str(job.get("target_index") or "").strip()
+    if target_index in ("*", "-"):
+        target_index = ""
     forwarders = parse_forwarders(job.get("forwarders"))
     earliest = _num(job.get("earliest"), "earliest")
     latest = _num(job.get("latest"), "latest")
@@ -734,12 +746,15 @@ def run_task(cfg, backend, kv, job, task, sink_factory):
         raise JobError("invalid sourcetype %r" % sourcetype)
     if earliest <= 0 or latest <= earliest:
         raise JobError("invalid time range %s - %s" % (earliest, latest))
+    if target_index and not INDEX_NAME_RE.match(target_index):
+        raise JobError("invalid destination index %r" % target_index)
 
     files = select_files(backend, sourcetype, earliest, latest, slack, forwarders)
     total = sum(s for _, s, _ in files)
     log.info("action=task_selected job=%s sourcetype=%s earliest=%d latest=%d forwarders=%s "
-             "files=%d bytes=%d", job_id, sourcetype, earliest, latest,
-             "all" if forwarders is None else len(forwarders), len(files), total)
+             "target_index=%s files=%d bytes=%d", job_id, sourcetype, earliest, latest,
+             "all" if forwarders is None else len(forwarders), target_index or "original",
+             len(files), total)
     if not files:
         task.finish("done", "no files in this time range")
         return
@@ -759,7 +774,8 @@ def run_task(cfg, backend, kv, job, task, sink_factory):
                 raise Cancelled()
             with backend.open(handle, cfg.get("agent", "work_dir")) as src:
                 dst = sink.begin(name)
-                kept, skipped, bad = filter_stream(src, dst, earliest, latest, index_filter, job_id, tag)
+                kept, skipped, bad = filter_stream(src, dst, earliest, latest, index_filter, job_id, tag,
+                                                    target_index)
                 sink.end(kept)
             r = task.rec
             task.save(files_done=r["files_done"] + 1, bytes_read=r["bytes_read"] + size,

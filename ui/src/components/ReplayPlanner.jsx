@@ -7,12 +7,12 @@ import Text from '@splunk/react-ui/Text';
 import Typography from '@splunk/react-ui/Typography';
 import { submitReplay } from '../lib/api';
 import {
-    formatBytes, formatCount, forwardersWithSourcetype, statusMeta, validateIndexFilter,
+    formatBytes, formatCount, forwardersWithSourcetype, statusMeta, validateIndexFilter, validateTargetIndex,
 } from '../lib/replay';
 import {
     DAY, coverage, dataSegments, domainOf, formatSpan, formatUtc, overlapping, parseUtc, replaySegments,
 } from '../lib/timeline';
-import { ForwarderPicker } from './NewReplay';
+import { ForwarderPicker, TargetIndexField, TargetIndexNotice } from './NewReplay';
 import { Field, Row, Stack } from './Layout';
 import Timeline from './Timeline';
 
@@ -56,8 +56,15 @@ function UtcInput({ label, value, onCommit }) {
 /**
  * Replay one sourcetype with its time range picked on a timeline that shows the data
  * the forwarders hold and the earlier replays of that sourcetype.
+ *
+ * With `agent` (a forwarder row), the planner is for that one agent: catalogRows and jobs
+ * are that agent's, the replay goes to that agent only, and `children` (its datasets)
+ * are shown above the timeline.
  */
-export default function ReplayPlanner({ sourcetype, initialDay, catalogRows, jobs, forwarders, onClose, onSubmitted, onOpenJob }) {
+export default function ReplayPlanner({
+    sourcetype, initialDay, catalogRows, jobs, forwarders, agent = null, title, subtitle, children,
+    onClose, onSubmitted, onOpenJob,
+}) {
     const data = useMemo(() => dataSegments(catalogRows, sourcetype), [catalogRows, sourcetype]);
     const replays = useMemo(() => replaySegments(jobs, sourcetype), [jobs, sourcetype]);
     const domain = useMemo(() => domainOf(data, replays), [data, replays]);
@@ -69,6 +76,7 @@ export default function ReplayPlanner({ sourcetype, initialDay, catalogRows, job
     // The link or button that opened the planner gets focus back on close.
     const opener = useRef(typeof document === 'undefined' ? null : document.activeElement);
     const [indexFilter, setIndexFilter] = useState('*');
+    const [targetIndex, setTargetIndex] = useState('');
     const [selected, setSelected] = useState([]);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
@@ -76,7 +84,7 @@ export default function ReplayPlanner({ sourcetype, initialDay, catalogRows, job
     const candidates = useMemo(() => forwardersWithSourcetype(forwarders, sourcetype), [forwarders, sourcetype]);
     const cover = coverage(selection, data);
     const overlaps = overlapping(selection, replays);
-    const indexError = validateIndexFilter(indexFilter);
+    const indexError = validateIndexFilter(indexFilter) || validateTargetIndex(targetIndex);
     const rangeError = selection && selection.end <= selection.start ? 'End must be after start.' : null;
 
     const setStart = (t) => setSelection((s) => ({ start: t, end: s && s.end > t ? s.end : t + DAY }));
@@ -87,7 +95,12 @@ export default function ReplayPlanner({ sourcetype, initialDay, catalogRows, job
         setError(null);
         try {
             const row = await submitReplay({
-                sourcetype, indexFilter, forwarders: selected, earliest: selection.start, latest: selection.end,
+                sourcetype,
+                indexFilter,
+                targetIndex,
+                forwarders: agent ? [agent.guid] : selected,
+                earliest: selection.start,
+                latest: selection.end,
             });
             onSubmitted(row.job_id);
             if (row.status === 'rejected') setError(`Rejected: ${row.message}`);
@@ -108,11 +121,17 @@ export default function ReplayPlanner({ sourcetype, initialDay, catalogRows, job
             style={{ width: 'min(1100px, 96vw)' }}
         >
             <Modal.Header
-                title={`Replay ${sourcetype}`}
-                subtitle="Pick a time range on the timeline. Times are UTC and snap to whole hours."
+                title={title || `Replay ${sourcetype}`}
+                subtitle={subtitle || 'Pick a time range on the timeline. Times are UTC and snap to whole hours.'}
             />
             <Modal.Body>
                 <Stack>
+                    {children}
+                    {agent && sourcetype && (
+                        <Typography as="p" variant="body" weight="semiBold">
+                            {`${sourcetype} on ${agent.label}`}
+                        </Typography>
+                    )}
                     <Timeline
                         data={data}
                         replays={replays}
@@ -149,28 +168,34 @@ export default function ReplayPlanner({ sourcetype, initialDay, catalogRows, job
                         </Message>
                     )}
                     <Row>
-                        <Field $flex="3 1 360px">
-                            <ControlGroup
-                                label="Agents"
-                                labelPosition="top"
-                                help={selected.length
-                                    ? `${formatCount(selected.length)} of ${formatCount(candidates.length)} agents selected.`
-                                    : `All ${formatCount(candidates.length)} agents that wrote ${sourcetype}.`}
-                            >
-                                <ForwarderPicker forwarders={candidates} values={selected} onChange={setSelected} />
-                            </ControlGroup>
-                        </Field>
+                        {!agent && (
+                            <Field $flex="3 1 360px">
+                                <ControlGroup
+                                    label="Agents"
+                                    labelPosition="top"
+                                    help={selected.length
+                                        ? `${formatCount(selected.length)} of ${formatCount(candidates.length)} agents selected.`
+                                        : `All ${formatCount(candidates.length)} agents that wrote ${sourcetype}.`}
+                                >
+                                    <ForwarderPicker forwarders={candidates} values={selected} onChange={setSelected} />
+                                </ControlGroup>
+                            </Field>
+                        )}
                         <Field $flex="1 1 200px">
                             <ControlGroup
                                 label="Index filter"
                                 labelPosition="top"
-                                help={indexError || 'Wildcards allowed; * replays all indexes.'}
-                                error={!!indexError}
+                                help={validateIndexFilter(indexFilter) || 'Wildcards allowed; * replays all indexes.'}
+                                error={!!validateIndexFilter(indexFilter)}
                             >
                                 <Text value={indexFilter} onChange={(e, { value }) => setIndexFilter(value)} />
                             </ControlGroup>
                         </Field>
+                        <Field $flex="1 1 200px">
+                            <TargetIndexField value={targetIndex} onChange={setTargetIndex} />
+                        </Field>
                     </Row>
+                    <TargetIndexNotice value={targetIndex} />
                     {error && <Message type="error" onRequestRemove={() => setError(null)}>{error}</Message>}
                 </Stack>
             </Modal.Body>
@@ -178,8 +203,8 @@ export default function ReplayPlanner({ sourcetype, initialDay, catalogRows, job
                 <Button appearance="secondary" label="Close" onClick={onClose} />
                 <Button
                     appearance="primary"
-                    label={busy ? 'Submitting…' : 'Replay'}
-                    disabled={busy || !selection || !!rangeError || !!indexError}
+                    label={busy ? 'Submitting…' : agent ? `Replay from ${agent.label}` : 'Replay'}
+                    disabled={busy || !sourcetype || !selection || !!rangeError || !!indexError}
                     onClick={submit}
                 />
             </Modal.Footer>

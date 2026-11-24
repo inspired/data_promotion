@@ -125,11 +125,15 @@ const partitionColumns = (onPick) => [
 
 const mono = (v) => <Typography as="span" variant="monoSmallBody">{v}</Typography>;
 
-const FORWARDER_COLUMNS = [
+const forwarderColumns = (onOpen) => [
     {
         key: 'hostname',
         label: 'Agent',
-        render: (r) => r.hostname || <Typography as="span" color="muted">Name unknown</Typography>,
+        render: (r) => (
+            <Link to="#" onClick={(e) => { e.preventDefault(); onOpen(r); }}>
+                {r.hostname || 'Name unknown'}
+            </Link>
+        ),
     },
     {
         key: 'status',
@@ -183,18 +187,19 @@ export function PartitionsTable({ rows, onPick }) {
 }
 
 /** Forwarders that wrote data to the store, with names from the forwarder-names lookup. */
-export function ForwardersTable({ forwarders }) {
+export function ForwardersTable({ forwarders, onOpen }) {
+    const columns = useMemo(() => forwarderColumns(onOpen), [onOpen]);
     return (
         <DataTable
             rows={forwarders}
-            columns={FORWARDER_COLUMNS}
+            columns={columns}
             rowKey={(r) => r.guid}
             filterKeys={['hostname', 'guid', 'version']}
             filterPlaceholder="Filter by name, GUID or version"
             emptyText="No agent has registered yet. Install TA-replay_agent on the Heavy Forwarders."
             summary={(n) => {
                 const stale = forwarders.filter((f) => f.status !== 'reporting').length;
-                return `${formatCount(n)} agents${stale ? ` · ${formatCount(stale)} not reporting` : ''} · times in UTC`;
+                return `${formatCount(n)} agents${stale ? ` · ${formatCount(stale)} not reporting` : ''} · times in UTC · click an agent to see its data and replay from it`;
             }}
             initialSort={{ key: 'hostname', dir: 'asc' }}
         />

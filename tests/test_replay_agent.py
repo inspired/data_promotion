@@ -105,11 +105,13 @@ class Base(unittest.TestCase):
             f.write(body)
         return name
 
-    def submit(self, earliest, latest, st="splunkd", idx="*", key="job1", fwd=None):
+    def submit(self, earliest, latest, st="splunkd", idx="*", key="job1", fwd=None, target=None):
         job = {"job_id": key, "sourcetype": st, "index_filter": idx,
                "earliest": earliest, "latest": latest, "status": "pending", "submitted_at": 1}
         if fwd is not None:
             job["forwarders"] = fwd
+        if target is not None:
+            job["target_index"] = target
         self.kv.put(ra.JOBS, key, job)
 
     def agent_run(self, agent=AGENT, served=None):
@@ -224,6 +226,39 @@ class TestRunJob(Base):
         self.agent_run()
         t = self.task()
         self.assertEqual((t["events_staged"], t["events_skipped"], t["events_bad"]), (1, 1, 2))
+
+    def test_destination_index(self):
+        self.write_hour(H06, [event(H06 + 1, index="main"), event(H06 + 2, index="_internal")])
+        self.submit(H06, H06 + HOUR, idx="_int*", target="replay_test")
+        self.agent_run()
+        out = self.staged_events()
+        self.assertEqual([(e["time"], e["index"]) for e in out], [(H06 + 2, "replay_test")])
+        self.assertEqual(out[0]["fields"]["replay_job"], "job1")
+
+    def test_destination_index_without_tagging(self):
+        self.write_hour(H06, [event(H06 + 1)])
+        self.cfg.cp.set("agent", "tag_events", "false")
+        self.submit(H06, H06 + HOUR, target="replay_test")
+        self.agent_run()
+        out = self.staged_events()
+        self.assertEqual(out[0]["index"], "replay_test")
+        self.assertNotIn("replay_job", out[0]["fields"])
+
+    def test_original_index_when_no_destination(self):
+        for target in ("", "*"):
+            key = "job_%s" % ("empty" if not target else "star")
+            self.write_hour(H06, [event(H06 + 1)])
+            self.submit(H06, H06 + HOUR, key=key, target=target)
+            self.agent_run()
+            self.assertEqual(self.staged_events(key)[0]["index"], "_internal")
+
+    def test_invalid_destination_index_fails(self):
+        self.write_hour(H06, [event(H06 + 1)])
+        self.submit(H06, H06 + HOUR, target="Bad Index")
+        self.agent_run()
+        t = self.task()
+        self.assertEqual(t["status"], "failed")
+        self.assertIn("destination index", t["message"])
 
     def test_no_files_in_range(self):
         self.write_hour(H06, [event(H06 + 1)])

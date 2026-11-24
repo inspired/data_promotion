@@ -17,6 +17,7 @@ import {
     forwardersWithSourcetype,
     validateIndexFilter,
     validateSourcetype,
+    validateTargetIndex,
     validateTimeRange,
 } from '../lib/replay';
 import { ButtonSlot, Field, Row, Stack } from './Layout';
@@ -56,12 +57,41 @@ export function ForwarderPicker({ forwarders, values, onChange }) {
     );
 }
 
+/** Destination index input: empty keeps each event's original index. */
+export function TargetIndexField({ value, onChange }) {
+    const error = validateTargetIndex(value);
+    return (
+        <ControlGroup
+            label="Destination index"
+            labelPosition="top"
+            help={error || 'Empty: each event goes to its original index.'}
+            error={!!error}
+        >
+            <Text value={value} placeholder="Original index" onChange={(e, { value: v }) => onChange(v)} />
+        </ControlGroup>
+    );
+}
+
+/** Shown while a destination index is set: Splunk cannot check that it exists. */
+export function TargetIndexNotice({ value }) {
+    const v = (value || '').trim();
+    if (!v || validateTargetIndex(v)) return null;
+    return (
+        <Message type="warning">
+            {`Every replayed event goes to the index ${v}. That index must already exist on the indexers: `}
+            {'events sent to an index that does not exist are dropped (or go to the last chance index, if one is set). '}
+            {'Agents need TA-replay_agent 1.3.0 or later; older agents replay to the original index.'}
+        </Message>
+    );
+}
+
 /** Form for submitting a replay job. Submission goes through the replay_submit macro. */
 export default function NewReplay({ catalog, forwarders, onSubmitted, onOpenTimeline }) {
     const [sourcetype, setSourcetype] = useState('');
     const [earliest, setEarliest] = useState('-24h@h');
     const [latest, setLatest] = useState('@h');
     const [indexFilter, setIndexFilter] = useState('*');
+    const [targetIndex, setTargetIndex] = useState('');
     const [selected, setSelected] = useState([]);
     const [busy, setBusy] = useState(false);
     const [result, setResult] = useState(null);
@@ -76,13 +106,16 @@ export default function NewReplay({ catalog, forwarders, onSubmitted, onOpenTime
     }, [candidates]);
 
     const indexError = validateIndexFilter(indexFilter);
-    const formError = validateSourcetype(sourcetype) || validateTimeRange(earliest, latest) || indexError;
+    const formError = validateSourcetype(sourcetype) || validateTimeRange(earliest, latest) || indexError
+        || validateTargetIndex(targetIndex);
 
     const submit = async () => {
         setBusy(true);
         setResult(null);
         try {
-            const row = await submitReplay({ sourcetype, indexFilter, forwarders: selected, earliest, latest });
+            const row = await submitReplay({
+                sourcetype, indexFilter, targetIndex, forwarders: selected, earliest, latest,
+            });
             if (row.status === 'rejected') {
                 setResult({ type: 'error', text: `Rejected: ${row.message}` });
             } else {
@@ -106,7 +139,7 @@ export default function NewReplay({ catalog, forwarders, onSubmitted, onOpenTime
         <Card>
             <Card.Header
                 title="New replay"
-                subtitle="Events go back to their original index, host, source and sourcetype."
+                subtitle="Events keep their host, source and sourcetype, and go back to their original index unless you set a destination index."
             />
             <Card.Body>
                 <Stack>
@@ -170,6 +203,9 @@ export default function NewReplay({ catalog, forwarders, onSubmitted, onOpenTime
                                 <Text value={indexFilter} onChange={(e, { value }) => setIndexFilter(value)} />
                             </ControlGroup>
                         </Field>
+                        <Field $flex="1 1 200px">
+                            <TargetIndexField value={targetIndex} onChange={setTargetIndex} />
+                        </Field>
                         <ButtonSlot>
                             <Button
                                 appearance="primary"
@@ -179,6 +215,7 @@ export default function NewReplay({ catalog, forwarders, onSubmitted, onOpenTime
                             />
                         </ButtonSlot>
                     </Row>
+                    <TargetIndexNotice value={targetIndex} />
                     {result && (
                         <Message type={result.type} onRequestRemove={() => setResult(null)}>
                             {result.text}

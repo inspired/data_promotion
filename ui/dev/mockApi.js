@@ -27,7 +27,7 @@ export const fetchAgents = async () => [
 export const fetchForwarderNames = async () => [];
 const base = { sourcetype: 'splunkd', index_filter: '*', earliest: 1795046400, latest: 1795179600, submitted_by: 'admin' };
 export const fetchJobs = async () => [
-    { ...base, _key: 'j1', job_id: '20261123-142538-99255a', status: 'completed', forwarders: '*', agents_expected: 1500, agents_reported: 1500, files_total: 108000, files_done: 108000, bytes_read: 2.1e12, events_staged: 844426000, events_indexed: 844426000, submitted_at: now - 4000, started_at: now - 3990, finished_at: now - 3000, completed_at: now - 2800, message: '844426000 of 844426000 events indexed' },
+    { ...base, _key: 'j1', job_id: '20261123-142538-99255a', status: 'completed', target_index: 'replay_test', forwarders: '*', agents_expected: 1500, agents_reported: 1500, files_total: 108000, files_done: 108000, bytes_read: 2.1e12, events_staged: 844426000, events_indexed: 844426000, submitted_at: now - 4000, started_at: now - 3990, finished_at: now - 3000, completed_at: now - 2800, message: '844426000 of 844426000 events indexed' },
     { ...base, _key: 'j2', job_id: '20261123-150101-a1b2c3', status: 'running', sourcetype: 'aws:cloudtrail', forwarders: `${G(1)} ${G(2)} ${G(3)}`, agents_expected: 3, agents_reported: 3, agents_running: 1, files_total: 120, files_done: 47, bytes_read: 9.1e9, events_staged: 1203344, submitted_at: now - 300, started_at: now - 280, message: '2 of 3 agents finished' },
     { ...base, _key: 'j3', job_id: '20261123-150455-d4e5f6', status: 'indexing', sourcetype: 'syslog', forwarders: G(7), agents_expected: 1, agents_reported: 1, files_total: 24, files_done: 24, events_staged: 500000, events_indexed: 312000, submitted_at: now - 200, started_at: now - 190, finished_at: now - 100, message: '312000 of 500000 events indexed so far' },
     { ...base, _key: 'j4', job_id: '20261123-150700-0f0f0f', status: 'pending', sourcetype: 'pan:traffic', forwarders: '*', agents_expected: 600, submitted_at: now - 20, message: 'waiting for agents' },
@@ -43,3 +43,11 @@ export const fetchThemePreference = async () => null;
 export const cancelJob = async () => ({});
 export const runSearch = async () => [{ index: '_internal', sourcetype: 'splunkd', host: 'splunk1', count: '807600' }, { index: '_internal', sourcetype: 'splunkd', host: 'ip-172-31-28-22', count: '36826' }];
 export const submitReplay = async ({ earliest, latest }) => ({ job_id: '20261123-160000-new000', status: 'pending', earliest, latest, message: 'queued' });
+export const fetchAgentCatalog = async (guid) => {
+    const i = parseInt(guid.slice(0, 8), 10) || 0;
+    return sts.slice(0, 1 + (i % 5)).flatMap((st, k) => [0, 1, 2].filter((d) => d !== k % 3 || k === 0).map((d) => ({
+        agent: guid, sourcetype: st, day: `2026-11-${19 + d}`, files: String(24 - k * 3), bytes: String(4.6e8 / (k + 1)),
+        earliest: String(1795046400 + d * 86400 + k * 3600), latest: String(1795132800 + d * 86400 - k * 7200),
+        forwarders: '1', updated_at: String(now - 240),
+    })));
+};

@@ -4,6 +4,7 @@ import Message from '@splunk/react-ui/Message';
 import P from '@splunk/react-ui/Paragraph';
 import TabLayout from '@splunk/react-ui/TabLayout';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
+import AgentView from './components/AgentView';
 import { ForwardersTable, PartitionsTable } from './components/Catalog';
 import JobPanel from './components/JobPanel';
 import JobsTable from './components/JobsTable';
@@ -28,6 +29,7 @@ export default function DataReplay() {
     const [error, setError] = useState(null);
     const [selectedKey, setSelectedKey] = useState(null);
     const [planner, setPlanner] = useState(null); // { sourcetype, day }
+    const [agentGuid, setAgentGuid] = useState(null); // agent open in AgentView
     const timer = useRef(null);
 
     const loadJobs = useCallback(async () => {
@@ -83,12 +85,15 @@ export default function DataReplay() {
         return m;
     }, [forwarders]);
     const selected = jobs.find((j) => j._key === selectedKey) || null;
+    const agent = agentGuid ? forwarders.find((f) => f.guid === agentGuid) || null : null;
 
     const openPlanner = useCallback((sourcetype, day) => setPlanner({ sourcetype, day }), []);
+    const openAgent = useCallback((f) => setAgentGuid(f.guid), []);
     const openJob = (jobId) => {
         const job = jobs.find((j) => j.job_id === jobId);
         if (!job) return;
         setPlanner(null);
+        setAgentGuid(null);
         setTab('jobs');
         setSelectedKey(job._key);
     };
@@ -136,7 +141,7 @@ export default function DataReplay() {
                     <PartitionsTable rows={catalogRows} onPick={openPlanner} />
                 </TabLayout.Panel>
                 <TabLayout.Panel label={`Agents (${formatCount(forwarders.length)})`} panelId="forwarders">
-                    <ForwardersTable forwarders={forwarders} />
+                    <ForwardersTable forwarders={forwarders} onOpen={openAgent} />
                 </TabLayout.Panel>
             </TabLayout>
 
@@ -148,6 +153,16 @@ export default function DataReplay() {
                     jobs={jobs}
                     forwarders={forwarders}
                     onClose={() => setPlanner(null)}
+                    onSubmitted={afterChange}
+                    onOpenJob={openJob}
+                />
+            )}
+
+            {agent && (
+                <AgentView
+                    forwarder={agent}
+                    jobs={jobs}
+                    onClose={() => setAgentGuid(null)}
                     onSubmitted={afterChange}
                     onOpenJob={openJob}
                 />

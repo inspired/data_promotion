@@ -1,5 +1,10 @@
 import {
     buildForwarders,
+    canOpenInSearch,
+    eventsSearch,
+    jobsForForwarder,
+    searchParams,
+    validateTargetIndex,
     resolveColorScheme,
     cancelledStatus,
     describeForwarders,
@@ -54,13 +59,45 @@ describe('validation and SPL builders', () => {
     });
 
     test('submitSearch', () => {
-        expect(submitSearch('splunkd', '*')).toBe('| `replay_submit(splunkd, *, *)`');
-        expect(submitSearch('splunkd', '', [])).toBe('| `replay_submit(splunkd, *, *)`');
+        expect(submitSearch('splunkd', '*')).toBe('| `replay_submit(splunkd, *, *, *)`');
+        expect(submitSearch('splunkd', '', [])).toBe('| `replay_submit(splunkd, *, *, *)`');
         expect(submitSearch('splunkd', '*', [G1.toLowerCase(), G2]))
-            .toBe(`| \`replay_submit(splunkd, *, ${G1} ${G2})\``);
+            .toBe(`| \`replay_submit(splunkd, *, ${G1} ${G2}, *)\``);
+        expect(submitSearch('splunkd', '*', [G1], ' replay_test ')).toBe(`| \`replay_submit(splunkd, *, ${G1}, replay_test)\``);
+        expect(() => submitSearch('splunkd', '*', [], 'x) | delete')).toThrow(/Destination index/);
         expect(() => submitSearch('splunkd', '*', ['x) | delete'])).toThrow(/Invalid agent/);
         expect(() => submitSearch('bad st', '*')).toThrow();
         expect(() => submitSearch('splunkd', 'x,y')).toThrow();
+    });
+
+    test('destination index', () => {
+        expect(validateTargetIndex('')).toBeNull();
+        expect(validateTargetIndex('  ')).toBeNull();
+        expect(validateTargetIndex('replay_test-1')).toBeNull();
+        expect(validateTargetIndex('_internal')).toBeNull();
+        expect(validateTargetIndex('Main')).toMatch(/lowercase/);
+        expect(validateTargetIndex('-x')).toMatch(/lowercase/);
+        expect(validateTargetIndex('ma*')).toMatch(/lowercase/);
+        expect(validateTargetIndex('a'.repeat(81))).toMatch(/lowercase/);
+    });
+
+    test('open in search', () => {
+        const job = { job_id: '20261123-142538-99255a', status: 'completed', earliest: '1795046400', latest: 1795050000.5 };
+        expect(eventsSearch(job)).toBe('(index=* OR index=_*) replay_job="20261123-142538-99255a"');
+        expect(eventsSearch({ ...job, target_index: 'replay_test' })).toBe('index=replay_test replay_job="20261123-142538-99255a"');
+        expect(searchParams(job)).toEqual({
+            q: 'search (index=* OR index=_*) replay_job="20261123-142538-99255a"', earliest: '1795046400', latest: '1795050002',
+        });
+        expect(() => eventsSearch({ job_id: 'x" OR 1' })).toThrow();
+        expect(canOpenInSearch(job)).toBe(true);
+        expect(canOpenInSearch({ ...job, status: 'running' })).toBe(false);
+        expect(canOpenInSearch({ ...job, status: 'incomplete', events_indexed: '0' })).toBe(false);
+        expect(canOpenInSearch({ ...job, status: 'incomplete', events_indexed: '12' })).toBe(true);
+    });
+
+    test('jobsForForwarder', () => {
+        const jobs = [{ job_id: 'a', forwarders: '*' }, { job_id: 'b', forwarders: `${G1} ${G2}` }, { job_id: 'c', forwarders: G2 }];
+        expect(jobsForForwarder(jobs, G1.toLowerCase()).map((j) => j.job_id)).toEqual(['a', 'b']);
     });
 
     test('verifySearch', () => {
@@ -158,6 +195,8 @@ describe('forwarders', () => {
         expect(f.map((x) => x.label)).toEqual([G2, 'splunk1']);
         expect(f[1]).toMatchObject({ guid: G1, hostname: 'splunk1', status: 'reporting', version: '1.2.1', sourcetypes: ['splunkd', 'syslog'] });
         expect(f[0]).toMatchObject({ sourcetypes: ['splunkd'], hostname: null, status: 'unregistered' });
+        // G2's files are held by agent G1 (shared store); G1 holds its own.
+        expect(f.map((x) => x.agents)).toEqual([[G1], [G1]]);
     });
 
     test('buildForwarders: stale heartbeat, metric-name fallback, registered without data', () => {

@@ -10,9 +10,11 @@ import SidePanel from '@splunk/react-ui/SidePanel';
 import Table from '@splunk/react-ui/Table';
 import Typography from '@splunk/react-ui/Typography';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
+import { createURL } from '@splunk/splunk-utils/url';
 import { cancelJob, fetchTasks, runSearch } from '../lib/api';
 import {
     canCancel,
+    canOpenInSearch,
     describeForwarders,
     formatBytes,
     formatCount,
@@ -22,6 +24,7 @@ import {
     isValidJobId,
     paginate,
     parseForwarders,
+    searchParams,
     statusMeta,
     submitSearch,
     verifySearch,
@@ -230,7 +233,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
     const doAgain = perform(async () => {
         const earliest = String(Math.floor(num(job.earliest)));
         const latest = String(Math.ceil(num(job.latest)));
-        const spl = submitSearch(job.sourcetype, job.index_filter || '*', parseForwarders(job.forwarders));
+        const spl = submitSearch(job.sourcetype, job.index_filter || '*', parseForwarders(job.forwarders), job.target_index);
         const rows = await runSearch(spl, earliest, latest);
         onChanged(rows[0] && rows[0].job_id);
     });
@@ -266,6 +269,8 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                     <Description><ForwarderList job={job} nameByGuid={nameByGuid} /></Description>
                     <Term>Index filter</Term>
                     <Description>{job.index_filter || '*'}</Description>
+                    <Term>Destination index</Term>
+                    <Description>{job.target_index || 'Original index'}</Description>
                     <Term>Time range</Term>
                     <Description>{formatRange(job.earliest, job.latest)}</Description>
                     <Term>Files</Term>
@@ -294,6 +299,14 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                 </DefinitionList>
 
                 <Row>
+                    {canOpenInSearch(job) && (
+                        <Button
+                            appearance="primary"
+                            label="Open in Search"
+                            to={createURL('app/search/search', searchParams(job))}
+                            openInNewContext
+                        />
+                    )}
                     {canCancel(job) && <Button appearance="destructive" label="Cancel job" onClick={ask('cancel')} />}
                     <Button label="Replay again" onClick={ask('again')} />
                 </Row>
@@ -315,7 +328,8 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                     ) : (
                         <P>
                             A new job replays {job.sourcetype} from {fromText} for{' '}
-                            {formatRange(job.earliest, job.latest)}. Events that are already indexed will be duplicated.
+                            {formatRange(job.earliest, job.latest)}
+                            {job.target_index ? ` into the index ${job.target_index}` : ''}. Events that are already indexed will be duplicated.
                         </P>
                     )}
                 </Modal.Body>

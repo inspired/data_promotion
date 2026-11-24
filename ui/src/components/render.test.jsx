@@ -10,6 +10,8 @@ import NewReplay from './NewReplay';
 import JobPanel from './JobPanel';
 import JobsTable from './JobsTable';
 import ReplayPlanner from './ReplayPlanner';
+import AgentView from './AgentView';
+import { fetchAgentCatalog, submitReplay } from '../lib/api';
 
 // SplunkwebConnector talks to splunkd (time parsing, capabilities); pass children through.
 jest.mock('@splunk/react-time-range/SplunkwebConnector', () => ({
@@ -24,6 +26,7 @@ jest.mock('@splunk/react-time-range/SplunkwebConnector', () => ({
 jest.mock('../lib/api', () => ({
     runSearch: jest.fn(() => Promise.resolve([])),
     submitReplay: jest.fn(() => Promise.resolve({ job_id: 'new1', status: 'pending' })),
+    fetchAgentCatalog: jest.fn(() => Promise.resolve([])),
     cancelJob: jest.fn(() => Promise.resolve({})),
     fetchTasks: jest.fn(() => Promise.resolve([
         { _key: 't1', agent_host: 'hf-osl-0001', status: 'done', files_done: 3, files_total: 3, events_staged: 1000, message: 'ok' },
@@ -195,4 +198,67 @@ test('Status is a colored icon with text, not a badge; tables have no row stripe
     const tones = [...document.querySelectorAll('[data-status-tone]')].map((el) => [el.textContent, el.dataset.statusTone]);
     expect(tones).toEqual([['Completed', 'positive'], ['Failed', 'negative']]);
     expect(document.querySelectorAll('[data-status-tone] svg').length).toBe(2);
+});
+
+test('JobPanel: Open in Search for a completed job, with its destination index', async () => {
+    await render(<JobPanel job={{ ...job, target_index: 'replay_test' }} onClose={() => {}} onChanged={() => {}} />);
+    const link = [...document.querySelectorAll('a')].find((a) => a.textContent.startsWith('Open in Search'));
+    expect(link).toBeTruthy();
+    const url = new URL(link.getAttribute('href'), 'http://x');
+    expect(url.pathname).toMatch(/\/app\/search\/search$/);
+    expect(url.searchParams.get('q')).toBe('search index=replay_test replay_job="20261123-142538-99255a"');
+    expect(url.searchParams.get('earliest')).toBe('1795042800');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(document.body.textContent).toContain('replay_test');
+});
+
+test('JobPanel: no Open in Search while running', async () => {
+    await render(<JobPanel job={{ ...job, status: 'running' }} onClose={() => {}} onChanged={() => {}} />);
+    expect(document.body.textContent).not.toContain('Open in Search');
+});
+
+function typeInto(input, value) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+test('NewReplay: destination index shows the notice and is validated', async () => {
+    const { text } = await render(<NewReplay catalog={[]} forwarders={fwd} onSubmitted={() => {}} />);
+    expect(text()).toContain('Destination index');
+    const input = document.querySelector('input[placeholder="Original index"]');
+    await act(async () => typeInto(input, 'replay_test'));
+    expect(text()).toContain('must already exist on the indexers');
+    await act(async () => typeInto(input, 'Bad Index'));
+    expect(text()).not.toContain('must already exist on the indexers');
+    expect(text()).toContain('Use lowercase letters');
+});
+
+test('AgentView lists the agent datasets and replays from that agent only', async () => {
+    fetchAgentCatalog.mockResolvedValueOnce([
+        ...catalogRows.map((r) => ({ ...r, agent: fwd[0].guid })),
+        { sourcetype: 'syslog', day: '2026-11-20', files: 3, bytes: 3e6, earliest: 1795132800, latest: 1795140000, agent: fwd[0].guid },
+    ]);
+    const onSubmitted = jest.fn();
+    const forwarder = { ...fwd[0], agents: [fwd[0].guid], sourcetypes: ['splunkd', 'syslog'] };
+    const { text } = await render(
+        <AgentView forwarder={forwarder} jobs={[job]} onClose={() => {}} onSubmitted={onSubmitted} onOpenJob={() => {}} />
+    );
+    expect(fetchAgentCatalog).toHaveBeenCalledWith(fwd[0].guid);
+    expect(text()).toContain('2 datasets');
+    expect(text()).toContain('splunkd on splunk1');
+    expect(text()).not.toContain('Agents'); // no agent picker: fixed to this agent
+    const syslogRow = [...document.querySelectorAll('tr')].find((tr) => tr.textContent.startsWith('syslog'));
+    await act(async () => syslogRow.click());
+    expect(text()).toContain('syslog on splunk1');
+
+    const start = document.querySelector('input[placeholder="YYYY-MM-DD HH:MM"]');
+    await act(async () => typeInto(start, '2026-11-20 00:00'));
+    await act(async () => start.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    const btn = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Replay from splunk1');
+    await act(async () => btn.click());
+    expect(submitReplay).toHaveBeenCalledWith(expect.objectContaining({
+        sourcetype: 'syslog', forwarders: [fwd[0].guid], targetIndex: '', earliest: 1795132800, latest: 1795219200,
+    }));
+    expect(onSubmitted).toHaveBeenCalledWith('new1');
 });
