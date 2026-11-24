@@ -118,15 +118,35 @@ Give every rule that must leave promoted events alone a condition that excludes 
 isnull(promote_job)
 ```
 
+Ingest Actions rulesets can see `promote_job` on promoted events, so this condition works.
+
+### Example
+
+A ruleset for the `splunkd` sourcetype whose route rule sends events to the file system destination only when they are not promoted. Promoted events keep their existing destination and go to the indexers.
+
+`props.conf`:
+
+```ini
+[splunkd]
+RULESET-ruleset_wildcard = _rule:ruleset_wildcard:route:eval:revxh5fb
+RULESET_DESC-ruleset_wildcard =
+```
+
+`transforms.conf`:
+
+```ini
+[_rule:ruleset_wildcard:route:eval:revxh5fb]
+INGEST_EVAL = 'pd:_destinationKey'=if((isnull(promote_job)), "rfs:filesystem", 'pd:_destinationKey')
+STOP_PROCESSING_IF = NOT isnull('pd:_destinationKey') AND 'pd:_destinationKey' != "" AND (isnull('pd:_doRouteClone') OR 'pd:_doRouteClone' == "")
+```
+
+In the Ingest Actions UI, this is a **Route to destination** rule with the eval condition `isnull(promote_job)`. Replace `rfs:filesystem` with the name of your own destination.
+
 If the puddle is written *before* filter or drop rules (a full copy), give those rules the same condition. Otherwise a promotion brings back only what was indexed the first time.
 
 As a safety net, the agent skips puddle events that already carry `promote_job`, so an event written back by mistake is never promoted a second time.
 
-> [!WARNING]
-> It hasn't been verified yet that a ruleset condition can see the `promote_job` field of events read with `INDEXED_EXTRACTIONS = hec`. Check it once for each Splunk version:
-> 1. Note the file count for one sourcetype on the **Available data** tab.
-> 2. Promote one hour of that sourcetype from one forwarder.
-> 3. When the job is `completed`, wait for the next catalog refresh (15 minutes). The file count for that day must not have grown, and `| tstats count where index=* promote_job=<id>` must equal the job's promoted events.
+To check a ruleset: promote one hour of a sourcetype from one forwarder, and wait for the next catalog refresh after the job is `completed`. The file count for that day on **Available data** must not have grown.
 
 ## Agent settings
 
