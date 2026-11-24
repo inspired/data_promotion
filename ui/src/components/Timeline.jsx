@@ -4,7 +4,7 @@ import Button from '@splunk/react-ui/Button';
 import ButtonGroup from '@splunk/react-ui/ButtonGroup';
 import Typography from '@splunk/react-ui/Typography';
 import { variables } from '@splunk/themes';
-import { formatBytes, formatCount, statusMeta } from '../lib/replay';
+import { formatBytes, formatCount, statusMeta } from '../lib/promotion';
 import { TONE_COLOR } from './Status';
 import {
     DAY, HOUR, floorTo, formatSpan, formatUtc, makeScale, normalizeSelection, shiftSelection, ticks, zoomTo,
@@ -21,7 +21,7 @@ const CLICK_PX = 3; // less movement than this is a click
 const MIN_VIEW = 6 * HOUR;
 
 /** Bars use the same tone colors as the status indicators in the tables. */
-const replayColor = (status) => TONE_COLOR[statusMeta(status).tone] || TONE_COLOR.neutral;
+const promotionColor = (status) => TONE_COLOR[statusMeta(status).tone] || TONE_COLOR.neutral;
 
 const Svg = styled.svg`
     display: block;
@@ -51,7 +51,7 @@ const Track = styled.rect`
 const DataBar = styled.rect`
     fill: ${variables.contentColorMuted};
 `;
-const ReplayBar = styled.rect`
+const PromotionBar = styled.rect`
     fill: ${(p) => p.$color};
     cursor: pointer;
 `;
@@ -112,27 +112,27 @@ const clampView = (v, domain) => {
     return [start, start + span];
 };
 
-function describeHover(t, data, replays) {
+function describeHover(t, data, promotions) {
     const parts = [`${formatUtc(t)} UTC`];
     const d = data.find((s) => t >= s.start && t < s.end);
     parts.push(d
         ? `data ${d.day}: ${formatCount(d.files)} files, ${formatBytes(d.bytes)}`
         : 'no data');
-    const r = replays.filter((s) => t >= s.start && t < s.end);
-    if (r.length) parts.push(`replayed by ${r.map((s) => s.jobId).join(', ')}`);
+    const r = promotions.filter((s) => t >= s.start && t < s.end);
+    if (r.length) parts.push(`promoted by ${r.map((s) => s.jobId).join(', ')}`);
     return parts.join(' · ');
 }
 
 /**
  * Interactive timeline for one sourcetype.
  * - Data track: one bar per UTC day with files, shaded by file count.
- * - Replay lanes: earlier jobs over their time range, colored like their status;
+ * - Promotion lanes: earlier jobs over their time range, colored like their status;
  *   click one to open it.
  * - Selection: drag to select, drag inside to move, drag an edge to resize, click to
  *   select a whole UTC day. Arrow keys move it by an hour (Shift: resize the end).
  * - Zoom: buttons, or Ctrl/⌘ + wheel (trackpad pinch); horizontal scroll pans.
  */
-export default function Timeline({ data, replays, domain, selection, onChange, onOpenJob }) {
+export default function Timeline({ data, promotions, domain, selection, onChange, onOpenJob }) {
     const wrapRef = useRef(null);
     const svgRef = useRef(null);
     const width = useWidth(wrapRef);
@@ -158,8 +158,8 @@ export default function Timeline({ data, replays, domain, selection, onChange, o
     const scale = useMemo(() => makeScale(view, plotW), [view, plotW]);
     const axis = useMemo(() => ticks(view, plotW), [view, plotW]);
     const maxFiles = Math.max(1, ...data.map((d) => d.files));
-    const lanes = Math.min(MAX_LANES, replays.reduce((m, r) => Math.max(m, r.lane + 1), 0));
-    const hiddenReplays = replays.filter((r) => r.lane >= MAX_LANES).length;
+    const lanes = Math.min(MAX_LANES, promotions.reduce((m, r) => Math.max(m, r.lane + 1), 0));
+    const hiddenPromotions = promotions.filter((r) => r.lane >= MAX_LANES).length;
     const laneTop = AXIS_H + DATA_H + 10;
     const height = laneTop + Math.max(1, lanes) * (LANE_H + LANE_GAP) + 4;
     const clipX = (x) => Math.min(plotW, Math.max(0, x));
@@ -276,7 +276,7 @@ export default function Timeline({ data, replays, domain, selection, onChange, o
                 viewBox={`0 0 ${width} ${height}`}
                 role="slider"
                 tabIndex={0}
-                aria-label="Replay time range"
+                aria-label="Promotion time range"
                 aria-valuetext={selection
                     ? `${formatUtc(selection.start)} to ${formatUtc(selection.end)} UTC`
                     : 'No range selected'}
@@ -288,9 +288,9 @@ export default function Timeline({ data, replays, domain, selection, onChange, o
                 onKeyDown={onKeyDown}
             >
                 <Strong x={0} y={AXIS_H + DATA_H / 2 + 4}>Data</Strong>
-                <Strong x={0} y={laneTop + LANE_H - 3}>Replays</Strong>
-                {hiddenReplays > 0 && (
-                    <Text x={0} y={laneTop + LANE_H * 2}>{`+${hiddenReplays} more`}</Text>
+                <Strong x={0} y={laneTop + LANE_H - 3}>Promotions</Strong>
+                {hiddenPromotions > 0 && (
+                    <Text x={0} y={laneTop + LANE_H * 2}>{`+${hiddenPromotions} more`}</Text>
                 )}
                 <g transform={`translate(${GUTTER},0)`}>
                     <rect x={0} y={0} width={plotW} height={height} fill="transparent" />
@@ -318,16 +318,16 @@ export default function Timeline({ data, replays, domain, selection, onChange, o
                         );
                     })}
                     {lanes === 0 && (
-                        <Text x={4} y={laneTop + LANE_H - 3}>No earlier replays of this sourcetype</Text>
+                        <Text x={4} y={laneTop + LANE_H - 3}>No earlier promotions of this sourcetype</Text>
                     )}
-                    {replays.filter((r) => r.lane < MAX_LANES && r.end > view[0] && r.start < view[1]).map((r) => {
+                    {promotions.filter((r) => r.lane < MAX_LANES && r.end > view[0] && r.start < view[1]).map((r) => {
                         const x0 = clipX(scale.x(r.start));
                         const x1 = clipX(scale.x(r.end));
                         return (
-                            <ReplayBar
+                            <PromotionBar
                                 key={r.key}
                                 data-job={r.jobId}
-                                $color={replayColor(r.status)}
+                                $color={promotionColor(r.status)}
                                 x={x0}
                                 y={laneTop + r.lane * (LANE_H + LANE_GAP)}
                                 width={Math.max(2, x1 - x0)}
@@ -336,7 +336,7 @@ export default function Timeline({ data, replays, domain, selection, onChange, o
                                 opacity={0.85}
                             >
                                 <title>{`${r.jobId} · ${statusMeta(r.status).label} · ${formatUtc(r.start)} → ${formatUtc(r.end)} UTC (click to open)`}</title>
-                            </ReplayBar>
+                            </PromotionBar>
                         );
                     })}
                     {showSel && (
@@ -355,7 +355,7 @@ export default function Timeline({ data, replays, domain, selection, onChange, o
                 <Readout>
                     <Typography as="span" variant="smallBody" color="muted" style={{ whiteSpace: 'nowrap' }}>
                         {hoverT !== null
-                            ? describeHover(hoverT, data, replays)
+                            ? describeHover(hoverT, data, promotions)
                             : `Showing ${formatUtc(view[0]).slice(0, 10)} – ${formatUtc(view[1] - 1).slice(0, 10)} UTC (${formatSpan(view[1] - view[0])}). Drag to select; click a day to select it.`}
                     </Typography>
                 </Readout>

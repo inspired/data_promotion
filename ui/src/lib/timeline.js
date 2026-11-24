@@ -1,6 +1,6 @@
 /**
- * Pure helpers for the replay timeline: what data exists (catalog rows per UTC day),
- * where earlier replays were, scales, ticks and the UTC text format used by the inputs.
+ * Pure helpers for the promotion timeline: what data exists (catalog rows per UTC day),
+ * where earlier promotions were, scales, ticks and the UTC text format used by the inputs.
  * All times are epoch seconds, UTC.
  */
 
@@ -32,9 +32,9 @@ export function dataSegments(rows, sourcetype) {
 
 /**
  * Earlier jobs of one sourcetype as segments, each on the first lane where it does not
- * overlap another, so overlapping replays are stacked rather than hidden.
+ * overlap another, so overlapping promotions are stacked rather than hidden.
  */
-export function replaySegments(jobs, sourcetype) {
+export function promotionSegments(jobs, sourcetype) {
     const segs = jobs
         .filter((j) => j.sourcetype === sourcetype && j.status !== 'rejected')
         .map((j) => ({
@@ -61,9 +61,9 @@ export function replaySegments(jobs, sourcetype) {
     return segs;
 }
 
-/** Full UTC days covering the data and the replays; the last 7 days when there is neither. */
-export function domainOf(data, replays, now = Date.now() / 1000) {
-    const all = [...data, ...replays];
+/** Full UTC days covering the data and the promotions; the last 7 days when there is neither. */
+export function domainOf(data, promotions, now = Date.now() / 1000) {
+    const all = [...data, ...promotions];
     if (!all.length) return [floorTo(now, DAY) - 6 * DAY, ceilTo(now, DAY)];
     const lo = Math.min(...all.map((s) => s.start));
     const hi = Math.max(...all.map((s) => s.end));
@@ -127,10 +127,10 @@ export function shiftSelection(sel, delta, domain) {
     return { start, end: start + len };
 }
 
-/** Earlier replays that overlap a selection (their events would be indexed again). */
-export function overlapping(sel, replays) {
+/** Earlier promotions that overlap a selection (their events would be indexed again). */
+export function overlapping(sel, promotions) {
     if (!sel) return [];
-    return replays.filter((r) => r.start < sel.end && r.end > sel.start);
+    return promotions.filter((r) => r.start < sel.end && r.end > sel.start);
 }
 
 /** Data segments that overlap a selection, with files/bytes summed. */

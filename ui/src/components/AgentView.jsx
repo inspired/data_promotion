@@ -7,9 +7,9 @@ import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import styled from 'styled-components';
 import { variables } from '@splunk/themes';
 import { fetchAgentCatalog } from '../lib/api';
-import { formatBytes, formatCount, jobsForForwarder, summarizeCatalog } from '../lib/replay';
+import { formatBytes, formatCount, jobsForForwarder, summarizeCatalog } from '../lib/promotion';
 import { Nowrap, Row, Stack } from './Layout';
-import ReplayPlanner from './ReplayPlanner';
+import PromotionPlanner from './PromotionPlanner';
 import { AgentStatus } from './Status';
 
 const Scroll = styled.div`
@@ -57,8 +57,8 @@ function Datasets({ datasets, value, onChange }) {
 }
 
 /**
- * One agent: the datasets (sourcetypes) it holds, each on the replay timeline, and a
- * replay of a picked range from this agent only.
+ * One agent: the datasets (sourcetypes) it holds, each on the promotion timeline, and a
+ * promotion of a picked range from this agent only.
  * forwarder: a buildForwarders row. Its data is read from the catalog of the agent(s)
  * that hold its files, which is the forwarder itself unless files sit in a shared store.
  */
@@ -96,14 +96,14 @@ export default function AgentView({ forwarder, jobs, onClose, onSubmitted, onOpe
     }, [datasets, sourcetype]);
 
     return (
-        <ReplayPlanner
+        <PromotionPlanner
             sourcetype={sourcetype}
             catalogRows={ownRows}
             jobs={agentJobs}
             forwarders={[forwarder]}
             agent={forwarder}
             title={forwarder.label}
-            subtitle="Pick a dataset, then a time range on the timeline. Times are UTC and snap to whole hours. The replay runs on this agent only."
+            subtitle="Pick a dataset, then a time range on the timeline. Times are UTC and snap to whole hours. The promotion runs on this agent only."
             onClose={onClose}
             onSubmitted={onSubmitted}
             onOpenJob={onOpenJob}
@@ -120,15 +120,15 @@ export default function AgentView({ forwarder, jobs, onClose, onSubmitted, onOpe
                     )}
                 </Row>
                 {forwarder.status === 'stale' && (
-                    <Message type="warning">This agent has not reported for 15 minutes. A replay waits up to 30 minutes for it.</Message>
+                    <Message type="warning">This agent has not reported for 15 minutes. A promotion waits up to 30 minutes for it.</Message>
                 )}
                 {forwarder.status === 'unregistered' && (
-                    <Message type="warning">No agent has registered with this GUID, so a replay may not be picked up.</Message>
+                    <Message type="warning">No agent has registered with this GUID, so a promotion may not be picked up.</Message>
                 )}
                 {shared && (
                     <Message type="info">
                         This forwarder&apos;s files are held by another agent (a shared store). Day totals below include every
-                        forwarder in that store; the replay still selects only this forwarder&apos;s files.
+                        forwarder in that store; the promotion still selects only this forwarder&apos;s files.
                     </Message>
                 )}
                 {error && <Message type="error">{error}</Message>}
@@ -136,6 +136,6 @@ export default function AgentView({ forwarder, jobs, onClose, onSubmitted, onOpe
                 {rows && datasets.length === 0 && <P>This agent has not published any data yet.</P>}
                 {datasets.length > 0 && <Datasets datasets={datasets} value={sourcetype} onChange={setSourcetype} />}
             </Stack>
-        </ReplayPlanner>
+        </PromotionPlanner>
     );
 }

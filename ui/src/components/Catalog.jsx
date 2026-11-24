@@ -4,7 +4,7 @@ import Paginator from '@splunk/react-ui/Paginator';
 import Search from '@splunk/react-ui/Search';
 import Table from '@splunk/react-ui/Table';
 import Typography from '@splunk/react-ui/Typography';
-import { formatBytes, formatCount, formatEpochShort, paginate } from '../lib/replay';
+import { formatBytes, formatCount, formatEpochShort, paginate } from '../lib/promotion';
 import { Field, Row, Stack } from './Layout';
 import { AgentStatus } from './Status';
 
@@ -180,7 +180,7 @@ export function PartitionsTable({ rows, onPick }) {
             filterKeys={['sourcetype', 'day']}
             filterPlaceholder="Filter by sourcetype or day"
             emptyText="No agent has published its catalog yet."
-            summary={(n) => `${formatCount(n)} partitions · times in UTC · catalog updated ${ago(updated)} · click a sourcetype or day to replay it on a timeline`}
+            summary={(n) => `${formatCount(n)} partitions · times in UTC · catalog updated ${ago(updated)} · click a sourcetype or day to promote it on a timeline`}
             initialSort={{ key: 'day', dir: 'desc' }}
         />
     );
@@ -196,10 +196,10 @@ export function ForwardersTable({ forwarders, onOpen }) {
             rowKey={(r) => r.guid}
             filterKeys={['hostname', 'guid', 'version']}
             filterPlaceholder="Filter by name, GUID or version"
-            emptyText="No agent has registered yet. Install TA-replay_agent on the Heavy Forwarders."
+            emptyText="No agent has registered yet. Install TA-promotion_agent on the Heavy Forwarders."
             summary={(n) => {
                 const stale = forwarders.filter((f) => f.status !== 'reporting').length;
-                return `${formatCount(n)} agents${stale ? ` · ${formatCount(stale)} not reporting` : ''} · times in UTC · click an agent to see its data and replay from it`;
+                return `${formatCount(n)} agents${stale ? ` · ${formatCount(stale)} not reporting` : ''} · times in UTC · click an agent to see its data and promote from it`;
             }}
             initialSort={{ key: 'hostname', dir: 'asc' }}
         />

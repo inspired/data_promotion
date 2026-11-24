@@ -9,7 +9,7 @@ import {
     formatRangeShort,
     paginate,
     progressOf,
-} from '../lib/replay';
+} from '../lib/promotion';
 import { Row, Stack } from './Layout';
 import { JobStatus } from './Status';
 
@@ -30,11 +30,11 @@ function ProgressText({ job }) {
     return <Typography as="span" color={p ? 'default' : 'muted'}>{p ? p.label : '–'}</Typography>;
 }
 
-/** Replay jobs, newest first. Clicking a row opens its details. */
+/** Promotion jobs, newest first. Clicking a row opens its details. */
 export default function JobsTable({ jobs, nameByGuid, onSelect, selectedKey }) {
     const [page, setPage] = useState(1);
     if (!jobs.length) {
-        return <Typography as="p" color="muted">No replay jobs yet. Submit one above.</Typography>;
+        return <Typography as="p" color="muted">No promotion jobs yet. Submit one above.</Typography>;
     }
     const { current, totalPages, rows } = paginate(jobs, page, PAGE_SIZE);
     return (

@@ -1,12 +1,12 @@
 /**
- * Splunk access for the Data Replay page.
+ * Splunk access for the Data Promotion page.
  * - KV store collections via REST (jobs list, catalog, cancel).
- * - Searches via @splunk/search-job (submitting through the replay_submit macro, verify).
+ * - Searches via @splunk/search-job (submitting through the promote_submit macro, verify).
  */
 import SearchJob from '@splunk/search-job';
 import { createRESTURL } from '@splunk/splunk-utils/url';
 import { getDefaultFetchInit, handleResponse, handleError } from '@splunk/splunk-utils/fetch';
-import { APP, JOBS, CATALOG, SOURCES, FORWARDER_NAMES, TASKS, AGENTS, CATALOG_SEARCH, cancelledStatus, submitSearch } from './replay';
+import { APP, JOBS, CATALOG, SOURCES, FORWARDER_NAMES, TASKS, AGENTS, CATALOG_SEARCH, cancelledStatus, submitSearch } from './promotion';
 
 function kvURL(collection, key) {
     const path = `storage/collections/data/${collection}${key ? `/${encodeURIComponent(key)}` : ''}`;
@@ -66,12 +66,12 @@ export function fetchSources() {
     return kvGet(SOURCES, { fields: 'agent,guid,sourcetypes,days,files,bytes,earliest,latest' });
 }
 
-/** Registered replay agents (each agent writes its own row). */
+/** Registered promotion agents (each agent writes its own row). */
 export function fetchAgents() {
     return kvGet(AGENTS);
 }
 
-/** Fallback GUID -> hostname from indexer metrics ("Replay - Forwarder names"). */
+/** Fallback GUID -> hostname from indexer metrics ("Promotion - Forwarder names"). */
 export function fetchForwarderNames() {
     return kvGet(FORWARDER_NAMES, { fields: 'guid,hostname,last_seen' });
 }
@@ -121,10 +121,10 @@ export function runSearch(search, earliest, latest) {
 }
 
 /**
- * Submit a replay through the replay_submit macro and resolve with its result row
+ * Submit a promotion through the promote_submit macro and resolve with its result row
  * (job_id, status, message, earliest, latest). earliest/latest: Splunk time modifiers or epochs.
  */
-export async function submitReplay({ sourcetype, indexFilter, forwarders, targetIndex, earliest, latest }) {
+export async function submitPromotion({ sourcetype, indexFilter, forwarders, targetIndex, earliest, latest }) {
     const spl = submitSearch(sourcetype, indexFilter || '*', forwarders, targetIndex);
     const rows = await runSearch(spl, String(earliest), String(latest));
     if (!rows[0]) throw new Error('The submit search returned no result.');

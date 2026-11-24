@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<!-- React page built with the Splunk UI Toolkit (source: ui/). Splunk's built-in
+     splunk_ui_app.html template loads appserver/static/pages/data_promotion.js. -->
+<view template="pages/splunk_ui_app.html" type="html" isDashboard="False">
+    <label>Data Promotion</label>
+</view>

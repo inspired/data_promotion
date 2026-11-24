@@ -8,7 +8,7 @@ import ExclamationTriangle from '@splunk/react-icons/ExclamationTriangle';
 import Hourglass from '@splunk/react-icons/Hourglass';
 import QuestionCircle from '@splunk/react-icons/QuestionCircle';
 import { variables } from '@splunk/themes';
-import { agentStatusMeta, statusMeta, taskStatusMeta } from '../lib/replay';
+import { agentStatusMeta, statusMeta, taskStatusMeta } from '../lib/promotion';
 
 /** Tone -> theme content color (readable on the page and table backgrounds, light and dark). */
 export const TONE_COLOR = {

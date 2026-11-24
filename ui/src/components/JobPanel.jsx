@@ -28,7 +28,7 @@ import {
     statusMeta,
     submitSearch,
     verifySearch,
-} from '../lib/replay';
+} from '../lib/promotion';
 import { JobProgress } from './JobsTable';
 import { JobStatus, TaskStatus } from './Status';
 import { Nowrap, Row, SIDE_PANEL_INNER, SidePanelBody, SidePanelHeader, Stack } from './Layout';
@@ -40,7 +40,7 @@ const TASK_POLL_MS = 5000;
 // Problems first, then work in progress.
 const TASK_ORDER = { failed: 0, running: 1, cancelled: 2, done: 3 };
 
-/** Every forwarder's share of the job, read live from replay_tasks. */
+/** Every forwarder's share of the job, read live from promotion_tasks. */
 function AgentTasks({ job }) {
     const [tasks, setTasks] = useState(null);
     const [error, setError] = useState(null);
@@ -118,7 +118,7 @@ function AgentTasks({ job }) {
     );
 }
 
-/** Indexed-event breakdown for a job, straight from tstats on replay_job. */
+/** Indexed-event breakdown for a job, straight from tstats on promote_job. */
 function Verify({ job }) {
     const [state, setState] = useState({ loading: false, rows: null, error: null });
 
@@ -144,7 +144,7 @@ function Verify({ job }) {
             </Row>
             {state.error && <Message type="error">{state.error}</Message>}
             {state.rows && state.rows.length === 0 && (
-                <P>No events with replay_job={job.job_id} are searchable yet.</P>
+                <P>No events with promote_job={job.job_id} are searchable yet.</P>
             )}
             {state.rows && state.rows.length > 0 && (
                 <Table>
@@ -199,7 +199,7 @@ function ForwarderList({ job, nameByGuid }) {
     );
 }
 
-/** Side panel with job details and actions (cancel, replay again, verify). */
+/** Side panel with job details and actions (cancel, promote again, verify). */
 export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
     const [confirm, setConfirm] = useState(null); // 'cancel' | 'again'
     const [busy, setBusy] = useState(false);
@@ -282,7 +282,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                         {formatCount(job.agents_reported || 0)} of {formatCount(job.agents_expected)} reported
                         {num(job.agents_failed) ? `, ${formatCount(job.agents_failed)} failed` : ''}
                     </Description>
-                    <Term>Events replayed</Term>
+                    <Term>Events promoted</Term>
                     <Description>{formatCount(job.events_staged)}</Description>
                     <Term>Events indexed</Term>
                     <Description>{formatCount(job.events_indexed)}</Description>
@@ -292,7 +292,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                     <Description>{formatCount(job.events_bad)}</Description>
                     <Term>Submitted</Term>
                     <Description>{formatEpoch(job.submitted_at)} UTC by {job.submitted_by || '–'}</Description>
-                    <Term>Replay took</Term>
+                    <Term>Promotion took</Term>
                     <Description>{formatDuration(runtime)}</Description>
                     <Term>Indexing took</Term>
                     <Description>{formatDuration(toIndexed)}</Description>
@@ -308,7 +308,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                         />
                     )}
                     {canCancel(job) && <Button appearance="destructive" label="Cancel job" onClick={ask('cancel')} />}
-                    <Button label="Replay again" onClick={ask('again')} />
+                    <Button label="Promote again" onClick={ask('again')} />
                 </Row>
 
                 {isValidJobId(job.job_id) && <AgentTasks job={job} />}
@@ -317,7 +317,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
             </SidePanelBody>
 
             <Modal open={confirm !== null} onRequestClose={() => setConfirm(null)} returnFocus={trigger}>
-                <Modal.Header title={confirm === 'cancel' ? 'Cancel this replay?' : 'Replay again?'} />
+                <Modal.Header title={confirm === 'cancel' ? 'Cancel this promotion?' : 'Promote again?'} />
                 <Modal.Body>
                     {confirm === 'cancel' ? (
                         <P>
@@ -327,7 +327,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                         </P>
                     ) : (
                         <P>
-                            A new job replays {job.sourcetype} from {fromText} for{' '}
+                            A new job promotes {job.sourcetype} from {fromText} for{' '}
                             {formatRange(job.earliest, job.latest)}
                             {job.target_index ? ` into the index ${job.target_index}` : ''}. Events that are already indexed will be duplicated.
                         </P>
@@ -337,7 +337,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                     <Button label="Back" onClick={() => setConfirm(null)} disabled={busy} />
                     <Button
                         appearance={confirm === 'cancel' ? 'destructive' : 'primary'}
-                        label={busy ? 'Working…' : confirm === 'cancel' ? 'Cancel job' : 'Replay again'}
+                        label={busy ? 'Working…' : confirm === 'cancel' ? 'Cancel job' : 'Promote again'}
                         onClick={confirm === 'cancel' ? doCancel : doAgain}
                         disabled={busy}
                     />

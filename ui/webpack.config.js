@@ -1,12 +1,12 @@
 const path = require('path');
 const webpack = require('webpack');
 
-// Builds the Data Replay page into the replay_control app. Splunk's built-in
+// Builds the Data Promotion page into the promotion_control app. Splunk's built-in
 // pages/splunk_ui_app.html template loads appserver/static/pages/<view name>.js.
 module.exports = (env, argv) => ({
-    entry: { data_replay: path.join(__dirname, 'src/index.jsx') },
+    entry: { data_promotion: path.join(__dirname, 'src/index.jsx') },
     output: {
-        path: path.join(__dirname, '..', 'replay_control', 'appserver', 'static', 'pages'),
+        path: path.join(__dirname, '..', 'promotion_control', 'appserver', 'static', 'pages'),
         filename: '[name].js',
         clean: true,
     },

@@ -1,0 +1,65 @@
+[]
+access = read : [ * ], write : [ admin ]
+export = none
+
+[collections/promotion_jobs]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[transforms/promotion_jobs]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[collections/promotion_catalog]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[transforms/promotion_catalog]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[collections/promotion_sources]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[transforms/promotion_sources]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[collections/promotion_tasks]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[transforms/promotion_tasks]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[collections/promotion_agents]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[transforms/promotion_agents]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[collections/promotion_forwarder_names]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[transforms/promotion_forwarder_names]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[macros]
+access = read : [ promotion_user, admin ], write : [ admin ]
+export = none
+
+[savedsearches]
+access = read : [ promotion_user, admin ], write : [ admin ]
+export = none
+
+[fields]
+export = system
+
+[views]
+access = read : [ promotion_user, admin ], write : [ admin ]

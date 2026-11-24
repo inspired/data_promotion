@@ -1,6 +1,6 @@
 import {
     DAY, HOUR, coverage, dataSegments, domainOf, formatSpan, formatUtc, normalizeSelection, overlapping,
-    parseUtc, replaySegments, shiftSelection, ticks, zoomTo,
+    parseUtc, promotionSegments, shiftSelection, ticks, zoomTo,
 } from './timeline';
 
 const D0 = Date.UTC(2026, 10, 19) / 1000; // 2026-11-19 00:00 UTC
@@ -25,12 +25,12 @@ test('dataSegments: one sorted segment per day of the sourcetype, widened to who
     expect(segs[1]).toMatchObject({ start: D0 + DAY, end: D0 + DAY + 5 * HOUR, files: 12, bytes: 100, forwarders: 2 });
 });
 
-test('replaySegments: skips rejected and other sourcetypes, stacks overlaps on lanes', () => {
-    const segs = replaySegments(jobs, 'splunkd');
+test('promotionSegments: skips rejected and other sourcetypes, stacks overlaps on lanes', () => {
+    const segs = promotionSegments(jobs, 'splunkd');
     expect(segs.map((s) => [s.jobId, s.lane])).toEqual([['a', 0], ['b', 1], ['c', 0]]);
 });
 
-test('domainOf: whole UTC days around data and replays; last 7 days when empty', () => {
+test('domainOf: whole UTC days around data and promotions; last 7 days when empty', () => {
     expect(domainOf(dataSegments(rows, 'splunkd'), [])).toEqual([D0, D0 + 2 * DAY]);
     expect(domainOf([], [], D0 + 3 * HOUR)).toEqual([D0 - 6 * DAY, D0 + DAY]);
 });
@@ -50,7 +50,7 @@ test('shiftSelection keeps the length and stays inside the domain', () => {
 
 test('overlapping and coverage', () => {
     const sel = { start: D0 + 11 * HOUR, end: D0 + DAY + 2 * HOUR };
-    expect(overlapping(sel, replaySegments(jobs, 'splunkd')).map((r) => r.jobId)).toEqual(['b']);
+    expect(overlapping(sel, promotionSegments(jobs, 'splunkd')).map((r) => r.jobId)).toEqual(['b']);
     expect(coverage(sel, dataSegments(rows, 'splunkd'))).toEqual({ days: 2, files: 36, bytes: 300 });
     expect(overlapping(null, [])).toEqual([]);
 });

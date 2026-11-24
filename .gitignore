@@ -3,5 +3,5 @@ __pycache__/
 .DS_Store
 dist/
 ui/node_modules/
-replay_control/appserver/static/pages/
+promotion_control/appserver/static/pages/
 ui/dev/out/
