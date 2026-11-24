@@ -58,6 +58,49 @@
   </tr>
 </table>
 
+## See it in action
+
+**One page on the Search Head.** Start a promotion at the top, and follow every job, the data the puddles hold, and your agents below.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">
+    <img alt="The Data Promotion page: the New promotion form above a list of jobs in every state, from pending to completed" src="docs/images/overview-light.png" width="100%">
+  </picture>
+</p>
+
+**Pick the range on a timeline.** See which days the puddles hold and where earlier promotions ran. Drag to select. A warning names any earlier promotions the range overlaps, before you index the same events twice.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/timeline-dark.png">
+    <img alt="The timeline for splunkd: the data held per day, earlier promotions as coloured bars, a 24-hour selection and a warning that it overlaps three earlier promotions" src="docs/images/timeline-light.png" width="100%">
+  </picture>
+</p>
+
+<table>
+  <tr>
+    <td width="40%" valign="top">
+      <b>Follow every job.</b> Files read, events promoted and indexed, how long it took, and the progress of every agent. Open the promoted events in Search with one click.
+      <br><br>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/job-dark.png">
+        <img alt="Job details for a completed promotion from 1,500 agents: 844 million events promoted and indexed, with Open in Search and progress per agent" src="docs/images/job-light.png" width="100%">
+      </picture>
+    </td>
+    <td width="60%" valign="top">
+      <b>Promote from one site.</b> Open an agent to see what its puddle holds, and promote a range from that agent only.
+      <br><br>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/agent-dark.png">
+        <img alt="One agent's view: its datasets per sourcetype, its splunkd data on the timeline with an 18-hour selection, and a Promote from this agent button" src="docs/images/agent-light.png" width="100%">
+      </picture>
+    </td>
+  </tr>
+</table>
+
+<sub>Screenshots show sample data.</sub>
+
 ## Try it
 
 The quickest way is an all-in-one Splunk instance that already writes Ingest Actions output to its own file system.

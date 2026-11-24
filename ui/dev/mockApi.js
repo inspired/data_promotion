@@ -39,11 +39,20 @@ export const fetchJobs = async () => [
     { ...base, _key: 'j5', job_id: '20261123-120000-bad000', status: 'failed', forwarders: G(4), agents_expected: 1, agents_reported: 1, agents_failed: 1, submitted_at: now - 9000, message: 'hf-fra-0004.corp.example: selected 61000000000 bytes exceeds max_bytes_per_job=53687091200' },
     { ...base, _key: 'j6', job_id: '20261123-110000-inc000', status: 'incomplete', forwarders: '*', agents_expected: 1500, agents_reported: 1495, agents_failed: 2, files_total: 3, files_done: 3, events_staged: 1000, events_indexed: 1000, submitted_at: now - 12000, message: '1000 of 1000 events indexed; 2 agent(s) failed (hf-iad-0011.corp.example: not enough free disk space (free=1073741824, need=2147483648)) 5 agent(s) did not report' },
 ];
-export const fetchTasks = async (jobId) => Array.from({ length: jobId.endsWith('a1b2c3') ? 3 : 45 }, (_, i) => ({
+export const fetchTasks = async (jobId) => (jobId.endsWith('99255a')
+    // The completed job: every one of the 1,500 agents finished (72 files, ~562,951 events each).
+    ? Array.from({ length: N }, (_, i) => {
+        const ev = 562950 + (i % 3 === 0 ? 1 : 0);
+        return {
+            _key: `${jobId}|${G(i)}`, agent: G(i), agent_host: host(i), status: 'done', files_total: 72, files_done: 72,
+            events_staged: ev, message: `${ev} events from 72 files handed to the batch input`,
+        };
+    })
+    : Array.from({ length: jobId.endsWith('a1b2c3') ? 3 : 45 }, (_, i) => ({
     _key: `${jobId}|${G(i)}`, agent: G(i), agent_host: host(i),
     status: i === 0 ? 'running' : i === 4 ? 'failed' : 'done', files_total: 40, files_done: i === 0 ? 7 : 40,
     events_staged: 401000 + i, message: i === 4 ? 'not enough free disk space (free=1073741824, need=2147483648)' : i === 0 ? 'promoting' : '401000 events from 40 files handed to the batch input',
-}));
+})));
 export const fetchThemePreference = async () => null;
 export const cancelJob = async () => ({});
 export const runSearch = async () => [{ index: '_internal', sourcetype: 'splunkd', host: 'splunk1', count: '807600' }, { index: '_internal', sourcetype: 'splunkd', host: 'hf-fra-0004', count: '36826' }];
