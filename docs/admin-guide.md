@@ -14,10 +14,10 @@ How to install Data Promotion, connect your forwarders, and keep promotions out 
 ## How it works
 
 <p align="center">
-  <img src="data-puddles.svg" alt="Remote sites each hold a Data Puddle (Ingest Actions output on local disk, a share or S3). A promotion agent next to each puddle reports to the Search Head and, on request, sends the selected events to the indexers." width="100%">
+  <img src="edge-archives.svg" alt="Remote sites each hold an edge archive (Ingest Actions output on local disk, a share or S3). A promotion agent next to each archive reports to the Search Head and, on request, sends the selected events to the indexers." width="100%">
 </p>
 
-A **Data Puddle** is the Ingest Actions file system or S3 destination of one Heavy Forwarder, in the layout Ingest Actions writes:
+An **edge archive** is the Ingest Actions file system or S3 destination of one Heavy Forwarder, in the layout Ingest Actions writes:
 
 ```
 <root>/year=YYYY/month=MM/day=DD/sourcetype=<st>/events_<latest>_<earliest>_<n>_<seq>_<HF server GUID>.ndjson[.gz]
@@ -30,9 +30,9 @@ There are two apps:
 | App | Runs on | Does |
 |---|---|---|
 | `promotion_control` | Search Head | The Data Promotion page, the KV store collections for jobs, agents and the catalog, the `promote_*` macros, and the searches that track jobs. |
-| `TA-promotion_agent` | Every Heavy Forwarder with a puddle | A Python scripted input (standard library only; S3 through the AWS CLI). It reports what the puddle holds and promotes from it. |
+| `TA-promotion_agent` | Every Heavy Forwarder with an edge archive | A Python scripted input (standard library only; S3 through the AWS CLI). It reports what the archive holds and promotes from it. |
 
-The agent tells the Search Head what its puddle holds, but never sends event contents until you promote them:
+The agent tells the Search Head what its edge archive holds, but never sends event contents until you promote them:
 
 - **Catalog**: files, bytes and time span per sourcetype and UTC day. Refreshed every 15 minutes.
 - **Field sample**: from the first events of the newest files per sourcetype, the indexes, hosts, sources and indexed field *names* seen there. The page uses them to suggest index filters. Field values and event text are never sent.
@@ -46,7 +46,7 @@ sequenceDiagram
     actor U as Analyst
     participant SH as Search Head<br/>(promotion_control)
     participant A as Agent at a remote site<br/>(TA-promotion_agent)
-    participant P as Data Puddle
+    participant P as Edge archive
     participant IDX as Indexers
 
     U->>SH: Promote sourcetype + time range + sites
@@ -62,7 +62,7 @@ sequenceDiagram
 ```
 
 1. **Submit.** The page, or the `promote_submit` macro, writes a job to the `promotion_jobs` collection and counts how many agents hold matching data.
-2. **Pick up.** Every agent whose puddle holds data for the job writes its own task to `promotion_tasks`. Agents never overwrite each other's records.
+2. **Pick up.** Every agent whose edge archive holds data for the job writes its own task to `promotion_tasks`. Agents never overwrite each other's records.
 3. **Select and filter.** The agent picks files by day directory and the hours in their names, plus neighbouring files for late-arriving events. It keeps only events whose own timestamp is inside the range and whose index matches the filter, and adds `promote_job=<id>` (and the destination index, if set).
 4. **Send.** The filtered files are moved into `$SPLUNK_HOME/var/spool/splunk/promotion/<job>/` as `*.stash_hec`. Splunk's built-in `stash_hec` input reads them, and the forwarder sends them through its normal outputs. Each event keeps its sourcetype, host, source and index.
 5. **Track.** The **Promotion - Track indexing** search on the Search Head runs every minute. It rolls the tasks up into the job and counts the indexed events per `promote_job`, until every event is searchable.
@@ -78,7 +78,7 @@ Agents never search and never change the job itself; the Search Head owns the jo
 3. Create a service account for the forwarders with the `promotion_user` role, and an authentication token for it (**Settings → Tokens**). Token authentication must be enabled.
 4. Make sure the app owner (`nobody`) can search every index you promote into, including `_internal` if you promote it. **Promotion - Track indexing** runs as that owner.
 
-### Every forwarder with a puddle: `TA-promotion_agent`
+### Every forwarder with an edge archive: `TA-promotion_agent`
 
 1. Deploy `TA-promotion_agent` with the Deployment Server (restart required), with a `local/promotion_agent.conf` such as:
    ```ini
@@ -88,7 +88,7 @@ Agents never search and never change the job itself; the Search Head owns the jo
    [control]
    sh_uri = https://sh1.example.com:8089
    ```
-   For a puddle in S3, set `backend = s3` and `s3_uri = s3://bucket/prefix`. The agent uses the AWS CLI with its normal credential chain; an instance profile is recommended.
+   For an edge archive in S3, set `backend = s3` and `s3_uri = s3://bucket/prefix`. The agent uses the AWS CLI with its normal credential chain; an instance profile is recommended.
 2. Store the Search Head token in the forwarder's credential store, in realm `promotion_agent` with the name `sh_token`:
    ```sh
    curl -k -u admin https://localhost:8089/servicesNS/nobody/TA-promotion_agent/storage/passwords \
@@ -110,7 +110,7 @@ fs_root = /data/ingest-actions
 
 ## Ingest Actions rules
 
-Promoted events go through the forwarder's ingest pipeline again, **including its Ingest Actions rulesets**. The rulesets are chosen by sourcetype, and promoted events keep their original sourcetype. So without a change, the ruleset that wrote an event to the puddle writes it to the puddle again, and any filter, mask or drop rules apply to it again.
+Promoted events go through the forwarder's ingest pipeline again, **including its Ingest Actions rulesets**. The rulesets are chosen by sourcetype, and promoted events keep their original sourcetype. So without a change, the ruleset that wrote an event to the edge archive writes it to the archive again, and any filter, mask or drop rules apply to it again.
 
 Give every rule that must leave promoted events alone a condition that excludes them. At least the route to the file system or S3 destination needs one. The eval expression is:
 
@@ -142,9 +142,9 @@ STOP_PROCESSING_IF = NOT isnull('pd:_destinationKey') AND 'pd:_destinationKey' !
 
 In the Ingest Actions UI, this is a **Route to destination** rule with the eval condition `isnull(promote_job)`. Replace `rfs:filesystem` with the name of your own destination.
 
-If the puddle is written *before* filter or drop rules (a full copy), give those rules the same condition. Otherwise a promotion brings back only what was indexed the first time.
+If the edge archive is written *before* filter or drop rules (a full copy), give those rules the same condition. Otherwise a promotion brings back only what was indexed the first time.
 
-As a safety net, the agent skips puddle events that already carry `promote_job`, so an event written back by mistake is never promoted a second time.
+As a safety net, the agent skips archived events that already carry `promote_job`, so an event written back by mistake is never promoted a second time.
 
 To check a ruleset: promote one hour of a sourcetype from one forwarder, and wait for the next catalog refresh after the job is `completed`. The file count for that day on **Available data** must not have grown.
 
@@ -156,7 +156,7 @@ All settings, with defaults and explanations, are in [`TA-promotion_agent/defaul
 |---|---|---|
 | `backend` | `filesystem` | `filesystem` or `s3`. |
 | `fs_root` | | Root of the Ingest Actions file system destination. |
-| `s3_uri` | | `s3://bucket/prefix` for an S3 puddle. |
+| `s3_uri` | | `s3://bucket/prefix` for an edge archive in S3. |
 | `aws_cli` | `/usr/local/bin/aws` | Path to the AWS CLI. |
 | `max_bytes_per_job` | 50 GiB | Most an agent reads for one job. |
 | `min_free_bytes` | 10 GiB | Disk space the agent always leaves free. |
@@ -172,7 +172,7 @@ All settings, with defaults and explanations, are in [`TA-promotion_agent/defaul
 
 ## Operating at scale
 
-Ingest Actions writes to each forwarder's own disk or bucket, so every such forwarder runs its own agent and promotes **its own** puddle.
+Ingest Actions writes to each forwarder's own disk or bucket, so every such forwarder runs its own agent and promotes from **its own** edge archive.
 
 - **Identity.** Each agent reads its server GUID and name and registers itself. Forwarders that never registered are named from indexer metrics by the hourly **Promotion - Forwarder names** search.
 - **Targeting.** A job selects all agents or a list of GUIDs. Only agents that hold matching data take part.

@@ -1,13 +1,13 @@
 # User guide
 
-Data Promotion brings data back from the **Data Puddles**, the Ingest Actions copies kept at remote sites, into Splunk when you need it. This guide covers the **Data Promotion** page and the search macros.
+Data Promotion brings data back from the **edge archives**, the Ingest Actions copies kept at remote sites, into Splunk when you need it. This guide covers the **Data Promotion** page and the search macros.
 
 To promote data you need the `promotion_user` role. Ask your Splunk admin if you don't see the app.
 
 - [Promote data](#promote-data)
 - [Pick a range on the timeline](#pick-a-range-on-the-timeline)
 - [Follow a job](#follow-a-job)
-- [See what the puddles hold](#see-what-the-puddles-hold)
+- [See what the edge archives hold](#see-what-the-edge-archives-hold)
 - [Promote from search](#promote-from-search)
 - [Find promoted events](#find-promoted-events)
 - [Job states](#job-states)
@@ -30,7 +30,7 @@ Each agent that holds matching data reads its own files, keeps only the events i
 
 Click a sourcetype or a day on **Available data**, or **Pick on a timeline** in the form. The timeline shows:
 
-- the **data the puddles hold** for that sourcetype, per UTC day;
+- the **data the edge archives hold** for that sourcetype, per UTC day;
 - **earlier promotions** of that sourcetype, as bars coloured by status. Click a bar to open that job.
 
 To select a range:
@@ -54,10 +54,10 @@ Click a job on the **Jobs** tab to open its details:
 - **Cancel job**: every agent stops after the file it is reading. Events already sent are still indexed.
 - **Promote again**: starts a new job with the same settings. Events that are already indexed are indexed again.
 
-## See what the puddles hold
+## See what the edge archives hold
 
-- **Available data**: what the puddles hold, one row per sourcetype and UTC day, with the number of agents, files, size, and the first and last hour.
-- **Agents**: every agent with its status (**Reporting**, **Not reporting** after 15 minutes of silence, or **Not registered**), its sourcetypes, files, size and when it was last seen. Click an agent to see what its puddle holds, pick a sourcetype to see it on the timeline, select a range and press **Promote from &lt;agent&gt;**.
+- **Available data**: what the edge archives hold, one row per sourcetype and UTC day, with the number of agents, files, size, and the first and last hour.
+- **Agents**: every agent with its status (**Reporting**, **Not reporting** after 15 minutes of silence, or **Not registered**), its sourcetypes, files, size and when it was last seen. Click an agent to see what its edge archive holds, pick a sourcetype to see it on the timeline, select a range and press **Promote from &lt;agent&gt;**.
 
 The catalog is refreshed every 15 minutes, so very recent data can take a little while to appear.
 

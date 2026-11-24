@@ -19,10 +19,10 @@
 
 **The data you need for an investigation is sitting on a disk at a remote site.** Splunk [Ingest Actions](https://docs.splunk.com/Documentation/Splunk/latest/Data/DataIngest) can keep a full copy of your data in cheap storage and send only what you search every day to the indexers. That saves license and storage, but the copy is out of reach: hourly files on disks and buckets at many sites, which nobody can search.
 
-**Data Promotion** makes that copy usable. Each copy is a **Data Puddle**, kept next to the forwarder that wrote it. A small agent beside every puddle tells the Search Head what it holds. When you need it, pick a **sourcetype, a time range and the sites**, and press **Promote**. Each agent sends exactly those events from its own puddle into Splunk, tagged so you can always tell them apart.
+**Data Promotion** makes that copy usable. Each copy is an **edge archive**, kept at the site next to the forwarder that wrote it. A small agent beside every archive tells the Search Head what it holds. When you need it, pick a **sourcetype, a time range and the sites**, and press **Promote**. Each agent sends exactly those events from its own archive into Splunk, tagged so you can always tell them apart.
 
 <p align="center">
-  <img src="docs/data-puddles.svg" alt="Remote sites each hold a Data Puddle (Ingest Actions output on local disk, a share or S3). A promotion agent next to each puddle reports to the Search Head and, on request, sends the selected events to the indexers." width="100%">
+  <img src="docs/edge-archives.svg" alt="Remote sites each hold an edge archive (Ingest Actions output on local disk, a share or S3). A promotion agent next to each archive reports to the Search Head and, on request, sends the selected events to the indexers." width="100%">
 </p>
 
 ## What it does
@@ -31,11 +31,11 @@
   <tr>
     <td width="33%" valign="top">
       <h3>See what you have</h3>
-      Every agent publishes what its puddle holds, per sourcetype and day: files, size and time span. Event contents never leave the site until you promote them.
+      Every agent publishes what its edge archive holds, per sourcetype and day: files, size and time span. Event contents never leave the site until you promote them.
     </td>
     <td width="33%" valign="top">
       <h3>Pick on a timeline</h3>
-      Select the range on a timeline of the data the puddles hold, with earlier promotions shown, so you don't index the same events twice.
+      Select the range on a timeline of the data the edge archives hold, with earlier promotions shown, so you don't index the same events twice.
     </td>
     <td width="33%" valign="top">
       <h3>Promote exactly</h3>
@@ -45,7 +45,7 @@
   <tr>
     <td valign="top">
       <h3>Move only what you ask for</h3>
-      Puddles stay at the edge. Only the selected events cross the network, through each forwarder's normal outputs. Source files are never changed or deleted.
+      Archives stay at the edge. Only the selected events cross the network, through each forwarder's normal outputs. Source files are never changed or deleted.
     </td>
     <td valign="top">
       <h3>Scale to fleets</h3>
@@ -60,7 +60,7 @@
 
 ## See it in action
 
-**One page on the Search Head.** Start a promotion at the top, and follow every job, the data the puddles hold, and your agents below.
+**One page on the Search Head.** Start a promotion at the top, and follow every job, the data the edge archives hold, and your agents below.
 
 <p align="center">
   <picture>
@@ -69,7 +69,7 @@
   </picture>
 </p>
 
-**Pick the range on a timeline.** See which days the puddles hold and where earlier promotions ran. Drag to select. A warning names any earlier promotions the range overlaps, before you index the same events twice.
+**Pick the range on a timeline.** See which days the edge archives hold and where earlier promotions ran. Drag to select. A warning names any earlier promotions the range overlaps, before you index the same events twice.
 
 <p align="center">
   <picture>
@@ -89,7 +89,7 @@
       </picture>
     </td>
     <td width="60%" valign="top">
-      <b>Promote from one site.</b> Open an agent to see what its puddle holds, and promote a range from that agent only.
+      <b>Promote from one site.</b> Open an agent to see what its edge archive holds, and promote a range from that agent only.
       <br><br>
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/agent-dark.png">
@@ -107,7 +107,7 @@ The quickest way is an all-in-one Splunk instance that already writes Ingest Act
 
 1. **Download** `promotion_control-<version>.spl` and `TA-promotion_agent-<version>.spl` from the [latest release](../../releases/latest).
 2. **Install** both: **Apps → Manage Apps → Install app from file**, then restart.
-3. **Point the agent at the puddle.** Create `$SPLUNK_HOME/etc/apps/TA-promotion_agent/local/promotion_agent.conf`:
+3. **Point the agent at the edge archive.** Create `$SPLUNK_HOME/etc/apps/TA-promotion_agent/local/promotion_agent.conf`:
    ```ini
    [agent]
    fs_root = /path/to/your/ingest-actions/output
@@ -117,7 +117,7 @@ The quickest way is an all-in-one Splunk instance that already writes Ingest Act
 To run it across sites, with a Search Head and many forwarders, see the [admin guide](docs/admin-guide.md).
 
 > [!IMPORTANT]
-> Promoted events pass through the forwarder's Ingest Actions rules again. Add the condition `isnull(promote_job)` to the rule that writes the puddle, or promoted events are written back to it. See [Ingest Actions rules](docs/admin-guide.md#ingest-actions-rules).
+> Promoted events pass through the forwarder's Ingest Actions rules again. Add the condition `isnull(promote_job)` to the rule that writes the edge archive, or promoted events are written back to it. See [Ingest Actions rules](docs/admin-guide.md#ingest-actions-rules).
 
 ## Documentation
 
