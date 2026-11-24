@@ -11,6 +11,13 @@ file_slack_seconds = <integer>
 max_bytes_per_job = <integer>
 min_free_bytes = <integer>
 catalog_interval = <integer>
+sample_files = <integer>
+* Newest files per sourcetype whose first events are sampled with each catalog publish.
+  0 turns field sampling off.
+sample_lines = <integer>
+sample_bytes = <integer>
+* S3 backend only: bytes read from the start of each sampled object.
+sample_max_values = <integer>
 tag_events = <boolean>
 heartbeat_interval = <integer>
 task_retention_days = <integer>

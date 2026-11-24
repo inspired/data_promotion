@@ -166,6 +166,14 @@ search every index you promote into, including `_internal` if you promote that.
   the range is exact to the second. `file_slack_seconds` (default 1h) also scans
   neighbouring files to catch late-arriving events.
 - **Partitions** are in UTC; month/day may be zero-padded or not.
+- **Field sampling:** with each catalog publish, every agent reads the first
+  `sample_lines` (200) events of the `sample_files` (3) newest files per sourcetype and
+  publishes the indexes, hosts, sources and indexed field *names* seen there
+  (`promotion_fields`, one row per agent + sourcetype). The index filter suggests those
+  indexes. Event text and field values are never published. A sourcetype is read again
+  only when its newest files change; on S3 only the first `sample_bytes` (1 MiB) of an
+  object are fetched. Search-time fields are not visible in the dump: the files hold
+  `_raw` plus indexed fields only. `sample_files = 0` turns sampling off.
 
 ## Tests
 - Agent: `python3 -m unittest discover -s tests -v`

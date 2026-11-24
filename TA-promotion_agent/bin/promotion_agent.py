@@ -11,6 +11,9 @@ Runs as a Splunk scripted input (passAuth = splunk-system-user). Each run:
   3. Publishes what it can promote (promotion_catalog, promotion_sources), every
      `catalog_interval` seconds. Rows are keyed by this agent's GUID, so agents never
      overwrite each other.
+     With the catalog it samples the head of the newest files per sourcetype and
+     publishes the indexes, hosts, sources and indexed field names seen there
+     (promotion_fields). Event contents are never published.
   4. Pulls active jobs (promotion_jobs). For each job that targets data this agent holds,
      it creates its own task record (promotion_tasks, key <job id>|<agent GUID>) and:
        - selects Ingest Actions output files by day directory + filename epochs
@@ -49,12 +52,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 
 APP_NAME = "TA-promotion_agent"
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JOBS = "promotion_jobs"
 CATALOG = "promotion_catalog"
 SOURCES = "promotion_sources"
+FIELDS = "promotion_fields"
 TASKS = "promotion_tasks"
 AGENTS = "promotion_agents"
 ACTIVE_JOB_STATUSES = ["pending", "running"]
@@ -111,6 +116,10 @@ DEFAULTS = {
         "max_bytes_per_job": "53687091200",
         "min_free_bytes": "10737418240",
         "catalog_interval": "900",
+        "sample_files": "3",
+        "sample_lines": "200",
+        "sample_bytes": "1048576",
+        "sample_max_values": "100",
         "tag_events": "true",
         "heartbeat_interval": "300",
         "task_retention_days": "30",
@@ -371,8 +380,14 @@ class FilesystemBackend:
         with open_ndjson(handle) as f:
             yield f
 
+    @contextlib.contextmanager
+    def open_head(self, handle, work_dir, max_bytes):
+        """Open a file for reading its first events only (the whole file is local)."""
+        with open_ndjson(handle) as f:
+            yield f
+
     def walk(self):
-        """Yield (sourcetype, date, name, size) for every file."""
+        """Yield (sourcetype, date, name, size, handle) for every file."""
         def subdirs(path, kind):
             try:
                 names = os.listdir(path)
@@ -394,7 +409,7 @@ class FilesystemBackend:
                         for name in os.listdir(sp):
                             full = os.path.join(sp, name)
                             if FILE_RE.match(name) and os.path.isfile(full):
-                                yield st, date, name, os.path.getsize(full)
+                                yield st, date, name, os.path.getsize(full), full
 
 
 class S3Backend:
@@ -456,6 +471,27 @@ class S3Backend:
             with contextlib.suppress(OSError):
                 os.remove(tmp)
 
+    @contextlib.contextmanager
+    def open_head(self, handle, work_dir, max_bytes):
+        """Download only the first max_bytes of an object (ranged GET). The last line, or
+        the gzip stream, is usually cut off; read_head() stops there."""
+        suffix = ".ndjson.gz" if handle.endswith(".gz") else ".ndjson"
+        fd, tmp = tempfile.mkstemp(prefix="s3head_", suffix=suffix, dir=work_dir)
+        os.close(fd)
+        try:
+            res = subprocess.run(
+                [self.aws, "s3api", "get-object", "--bucket", self.bucket, "--key", handle,
+                 "--range", "bytes=0-%d" % (max_bytes - 1), tmp],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
+            if res.returncode != 0:
+                raise JobError("aws s3api get-object failed: %s"
+                               % res.stderr.decode(errors="replace").strip())
+            with open_ndjson(tmp) as f:
+                yield f
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
+
     def walk(self):
         for obj in self._list(self._key() + "/" if self.prefix else ""):
             m = S3_KEY_RE.search(obj["Key"])
@@ -468,7 +504,7 @@ class S3Backend:
                 date = datetime.date(int(y), int(mo), int(d))
             except ValueError:
                 continue
-            yield st, date, name, int(obj.get("Size", 0))
+            yield st, date, name, int(obj.get("Size", 0)), obj["Key"]
 
 
 def make_backend(cfg):
@@ -484,20 +520,28 @@ def make_backend(cfg):
 # Catalog and registration
 # --------------------------------------------------------------------------- #
 
-def build_catalog(backend, agent, now=None):
-    """Walk the store once and return (partitions, sources, served).
+def build_catalog(backend, agent, now=None, newest_per_sourcetype=0):
+    """Walk the store once and return (partitions, sources, served, newest).
 
     partitions: one row per sourcetype + UTC day held by this agent, with the number of
                 writing forwarders. Key <agent>|<sourcetype>|<day>.
     sources:    one row per writing forwarder (server GUID in the filename) held by this
                 agent. Key <agent>|<writer>.
     served:     {writer GUID: [sourcetypes]}, used to decide which jobs target this agent.
+    newest:     {sourcetype: [(name, handle)]}, its newest_per_sourcetype newest files
+                (by the latest epoch in the filename), newest first. Used for sampling.
     """
     now = int(now or time.time())
     aguid = agent["guid"]
-    parts, guids_per_part, sources = {}, {}, {}
-    for st, date, name, size in backend.walk():
+    parts, guids_per_part, sources, newest = {}, {}, {}, {}
+    for st, date, name, size, handle in backend.walk():
         lo, hi = parse_file_range(name)
+        if newest_per_sourcetype > 0:
+            top = newest.setdefault(st, [])
+            top.append((hi, name, handle))
+            if len(top) > newest_per_sourcetype:
+                top.sort(reverse=True)
+                del top[newest_per_sourcetype:]
         guid = parse_writer_guid(name)
         key = "%s|%s|%s" % (aguid, st, date.isoformat())
         r = parts.setdefault(key, {
@@ -530,13 +574,15 @@ def build_catalog(backend, agent, now=None):
         s["sourcetypes"] = sorted(s["sourcetypes"])
         s["days"] = len(s["days"])
     served = {g: s["sourcetypes"] for g, s in sources.items()}
-    return list(parts.values()), list(sources.values()), served
+    newest = {st: [(n, h) for _, n, h in sorted(top, reverse=True)] for st, top in newest.items()}
+    return list(parts.values()), list(sources.values()), served, newest
 
 
-def publish_catalog(kv, backend, agent):
-    """Publish this agent's rows and remove only this agent's stale rows."""
+def publish_catalog(kv, backend, agent, newest_per_sourcetype=0):
+    """Publish this agent's rows and remove only this agent's stale rows.
+    Returns (served, totals, newest); see build_catalog."""
     now = int(time.time())
-    parts, sources, served = build_catalog(backend, agent, now)
+    parts, sources, served, newest = build_catalog(backend, agent, now, newest_per_sourcetype)
     kv.batch_save(CATALOG, parts)
     kv.delete(CATALOG, {"agent": agent["guid"], "updated_at": {"$lt": now}})
     kv.batch_save(SOURCES, sources)
@@ -547,7 +593,126 @@ def publish_catalog(kv, backend, agent):
         "files": sum(s["files"] for s in sources),
         "bytes": sum(s["bytes"] for s in sources),
         "sourcetypes": sorted({st for s in sources for st in s["sourcetypes"]}),
-    }
+    }, newest
+
+
+# --------------------------------------------------------------------------- #
+# Field sampling: what the sourcetypes contain (envelope values and field names only)
+# --------------------------------------------------------------------------- #
+
+def read_head(f, max_lines):
+    """Yield up to max_lines raw lines; stop quietly at a cut-off end (ranged S3 GET)."""
+    it = iter(f)
+    n = 0
+    while n < max_lines:
+        try:
+            raw = next(it)
+        except StopIteration:
+            return
+        except (EOFError, OSError, zlib.error):
+            return
+        n += 1
+        yield raw
+
+
+class FieldSample:
+    """Counts what a sample of HEC events of one sourcetype holds. Only the envelope
+    values (index, host, source) and the names of indexed fields are kept: never the
+    event text or indexed field values, which may be data that was kept out of Splunk
+    on purpose."""
+
+    def __init__(self):
+        self.indexes, self.hosts, self.sources, self.fields = {}, {}, {}, {}
+        self.events = self.files = 0
+
+    @staticmethod
+    def _inc(d, v):
+        if v is None or v == "":
+            return
+        v = str(v)
+        d[v] = d.get(v, 0) + 1
+
+    def add_line(self, raw):
+        line = raw.strip()
+        if not line:
+            return
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            return
+        if not isinstance(ev, dict):
+            return
+        fields = ev.get("fields")
+        if isinstance(fields, dict) and JOB_FIELD in fields:
+            return  # output of an earlier promotion; never promoted again
+        self.events += 1
+        self._inc(self.indexes, ev.get("index"))
+        self._inc(self.hosts, ev.get("host"))
+        self._inc(self.sources, ev.get("source"))
+        if isinstance(fields, dict):
+            for k in fields:
+                self._inc(self.fields, k)
+
+    def summary(self, max_values):
+        def top(d):
+            vals = sorted(d, key=lambda k: (-d[k], k))
+            return vals[:max_values], len(vals) > max_values
+        indexes, _ = top(self.indexes)
+        hosts, hosts_more = top(self.hosts)
+        sources, sources_more = top(self.sources)
+        fields, fields_more = top(self.fields)
+        return {
+            "indexes": indexes, "hosts": hosts, "sources": sources, "indexed_fields": fields,
+            "hosts_truncated": hosts_more, "sources_truncated": sources_more,
+            "fields_truncated": fields_more,
+            "events_sampled": self.events, "files_sampled": self.files,
+        }
+
+
+def sample_sourcetype(backend, files, work_dir, max_lines, max_bytes, max_values):
+    """Sample the first max_lines events of each (name, handle) in files."""
+    s = FieldSample()
+    for name, handle in files:
+        try:
+            with backend.open_head(handle, work_dir, max_bytes) as f:
+                for raw in read_head(f, max_lines):
+                    s.add_line(raw)
+            s.files += 1
+        except Exception as e:  # noqa: BLE001 - one unreadable file must not stop sampling
+            log.warning("action=sample_failed file=%s error=%s", name, e)
+    return s.summary(max_values)
+
+
+def publish_fields(kv, cfg, backend, agent, newest, cache, now=None):
+    """Publish one promotion_fields row per sourcetype this agent holds.
+
+    cache: {sourcetype: {"files": [names], "summary": {...}}} from the previous run.
+    A sourcetype is sampled again only when its newest files changed, so an unchanged
+    store costs no reads (and no S3 GETs). Returns the new cache."""
+    now = int(now or time.time())
+    work_dir = cfg.get("agent", "work_dir")
+    max_lines = cfg.getint("agent", "sample_lines")
+    max_bytes = cfg.getint("agent", "sample_bytes")
+    max_values = cfg.getint("agent", "sample_max_values")
+    new_cache, rows = {}, []
+    for st, files in sorted(newest.items()):
+        names = [n for n, _ in files]
+        hit = cache.get(st)
+        if hit and hit.get("files") == names and hit.get("summary"):
+            entry = hit
+        else:
+            entry = {"files": names, "sampled_at": now,
+                     "summary": sample_sourcetype(backend, files, work_dir, max_lines,
+                                                  max_bytes, max_values)}
+        new_cache[st] = entry
+        rows.append(dict(entry["summary"], _key="%s|%s" % (agent["guid"], st),
+                         agent=agent["guid"], sourcetype=st,
+                         sampled_at=entry.get("sampled_at", now), updated_at=now))
+    kv.batch_save(FIELDS, rows)
+    kv.delete(FIELDS, {"agent": agent["guid"], "updated_at": {"$lt": now}})
+    log.info("action=fields_published sourcetypes=%d sampled=%d", len(rows),
+             sum(1 for st in new_cache if cache.get(st) is not new_cache[st]))
+    return new_cache
 
 
 def heartbeat(kv, cfg, agent, totals=None):
@@ -891,11 +1056,18 @@ def run_once(cfg, kv, backend, agent, state, sink_factory, now=None):
     recover_stale(kv, agent)
     if now - state.get("catalog_at", 0) >= cfg.getint("agent", "catalog_interval") or "served" not in state:
         try:
-            served, totals = publish_catalog(kv, backend, agent)
+            sample_files = cfg.getint("agent", "sample_files")
+            served, totals, newest = publish_catalog(kv, backend, agent, sample_files)
             state.update(catalog_at=int(now), served=served)
             heartbeat(kv, cfg, agent, totals)
             state["heartbeat_at"] = int(now)
             purge_old_tasks(kv, agent, cfg.getint("agent", "task_retention_days"))
+            if sample_files > 0:
+                try:
+                    state["field_samples"] = publish_fields(
+                        kv, cfg, backend, agent, newest, state.get("field_samples") or {}, now)
+                except Exception:  # noqa: BLE001 - sampling must never block promotions
+                    log.exception("action=fields_failed")
         except Exception:  # noqa: BLE001
             log.exception("action=catalog_failed")
     elif now - state.get("heartbeat_at", 0) >= cfg.getint("agent", "heartbeat_interval"):

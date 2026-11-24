@@ -14,6 +14,8 @@ import {
     parseForwarders,
     canCancel,
     formatBytes,
+    indexOptions,
+    mergeFieldSamples,
     formatCount,
     formatDuration,
     formatEpoch,
@@ -253,4 +255,33 @@ test('every status has a tone, an icon and a label', () => {
     }));
     expect(statusMeta('weird')).toMatchObject({ label: 'weird', tone: 'neutral' });
     expect(agentStatusMeta(undefined).label).toBe('Not registered');
+});
+
+describe('field samples', () => {
+    const rows = [
+        { agent: 'a1', indexes: ['main', '_internal'], indexed_fields: ['node_guid'], events_sampled: 200, sampled_at: 10 },
+        { agent: 'a2', indexes: ['_internal'], indexed_fields: 'node_guid', events_sampled: '50', sampled_at: '20' },
+        { agent: 'a3', indexes: ['ignored'], events_sampled: 0, sampled_at: 30 },
+    ];
+
+    test('merges agents and ranks by how many saw a value', () => {
+        const m = mergeFieldSamples(rows);
+        expect(m.indexes).toEqual([{ name: '_internal', agents: 2 }, { name: 'main', agents: 1 }]);
+        expect(m.fields).toEqual([{ name: 'node_guid', agents: 2 }]);
+        expect([m.agents, m.events, m.sampledAt]).toEqual([2, 250, 20]);
+    });
+
+    test('nothing sampled gives null', () => {
+        expect(mergeFieldSamples([])).toBeNull();
+        expect(mergeFieldSamples([rows[2]])).toBeNull();
+    });
+
+    test('index options follow the typed filter', () => {
+        const idx = mergeFieldSamples(rows).indexes;
+        expect(indexOptions(idx, '*').map((i) => i.name)).toEqual(['_internal', 'main']);
+        expect(indexOptions(idx, '').length).toBe(2);
+        expect(indexOptions(idx, 'ma').map((i) => i.name)).toEqual(['main']);
+        expect(indexOptions(idx, '_*nal').map((i) => i.name)).toEqual(['_internal']);
+        expect(indexOptions(null, 'x')).toEqual([]);
+    });
 });

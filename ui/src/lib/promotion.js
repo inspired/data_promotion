@@ -10,6 +10,7 @@ export const SOURCES = 'promotion_sources';
 export const FORWARDER_NAMES = 'promotion_forwarder_names';
 export const TASKS = 'promotion_tasks';
 export const AGENTS = 'promotion_agents';
+export const FIELDS = 'promotion_fields';
 
 /** An agent that has not sent a heartbeat for this long is shown as not reporting. */
 export const AGENT_STALE_SECONDS = 15 * 60;
@@ -400,4 +401,38 @@ export function describeForwarders(job, nameByGuid = {}) {
     if (!guids.length) return 'All agents';
     if (guids.length === 1) return nameByGuid[guids[0]] || guids[0];
     return `${guids.length} agents`;
+}
+
+/**
+ * Merge the promotion_fields rows of one sourcetype (one row per agent) into
+ * { indexes: [{ name, agents }], fields: [{ name, agents }], agents, events, sampledAt }.
+ * Values are ranked by how many agents saw them, then by name. null when nothing was sampled.
+ */
+export function mergeFieldSamples(rows) {
+    const sampled = (rows || []).filter((r) => (num(r.events_sampled) || 0) > 0);
+    if (!sampled.length) return null;
+    const tally = (key) => {
+        const m = new Map();
+        sampled.forEach((r) => new Set(asList(r[key]).map(String)).forEach((v) => m.set(v, (m.get(v) || 0) + 1)));
+        return [...m].map(([name, agents]) => ({ name, agents }))
+            .sort((a, b) => b.agents - a.agents || a.name.localeCompare(b.name));
+    };
+    return {
+        indexes: tally('indexes'),
+        fields: tally('indexed_fields'),
+        agents: sampled.length,
+        events: sampled.reduce((t, r) => t + (num(r.events_sampled) || 0), 0),
+        sampledAt: Math.max(...sampled.map((r) => num(r.sampled_at) || 0)),
+    };
+}
+
+/** Index filter suggestions: indexes from the sample that match what was typed (* wildcards). */
+export function indexOptions(indexes, typed, limit = 100) {
+    const t = (typed || '').trim();
+    let match = () => true;
+    if (t && t !== '*') {
+        const re = new RegExp(`^${t.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}`, 'i');
+        match = (name) => re.test(name);
+    }
+    return (indexes || []).filter((i) => match(i.name)).slice(0, limit);
 }

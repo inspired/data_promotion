@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Card from '@splunk/react-ui/Card';
+import ComboBox from '@splunk/react-ui/ComboBox';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Link from '@splunk/react-ui/Link';
 import Message from '@splunk/react-ui/Message';
@@ -9,12 +10,14 @@ import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import TimeRangeDropdown from '@splunk/react-time-range/Dropdown';
 import SplunkwebConnector from '@splunk/react-time-range/SplunkwebConnector';
-import { submitPromotion } from '../lib/api';
+import { fetchFieldSamples, submitPromotion } from '../lib/api';
 import {
     filterForwarders,
     formatBytes,
     formatCount,
     forwardersWithSourcetype,
+    indexOptions,
+    mergeFieldSamples,
     validateIndexFilter,
     validateSourcetype,
     validateTargetIndex,
@@ -54,6 +57,54 @@ export function ForwarderPicker({ forwarders, values, onChange }) {
                 />
             ))}
         </Multiselect>
+    );
+}
+
+/** Indexes and indexed fields the agents sampled for a sourcetype (null while unknown). */
+export function useFieldSample(sourcetype) {
+    const [sample, setSample] = useState(null);
+    useEffect(() => {
+        let live = true;
+        setSample(null);
+        if (!sourcetype) return undefined;
+        fetchFieldSamples(sourcetype)
+            .then((rows) => { if (live) setSample(mergeFieldSamples(rows)); })
+            .catch(() => { if (live) setSample(null); }); // suggestions only; typing still works
+        return () => { live = false; };
+    }, [sourcetype]);
+    return sample;
+}
+
+/** Index filter: free text with wildcards, suggesting the indexes seen in sampled events. */
+export function IndexFilterField({ sourcetype, value, onChange }) {
+    const sample = useFieldSample(sourcetype);
+    const error = validateIndexFilter(value);
+    const options = useMemo(() => indexOptions(sample && sample.indexes, value), [sample, value]);
+    let help = 'Wildcards allowed; * promotes all indexes.';
+    if (sample && sample.indexes.length) {
+        const n = sample.indexes.length;
+        help = `${formatCount(n)} index${n === 1 ? '' : 'es'} seen in sampled events. ${help}`;
+    }
+    return (
+        <ControlGroup label="Index filter" labelPosition="top" help={error || help} error={!!error}>
+            <ComboBox
+                value={value}
+                controlledFilter
+                inline={false}
+                style={{ width: '100%' }}
+                placeholder="*"
+                onChange={(e, { value: v }) => onChange(v)}
+                noOptionsMessage={sample ? 'No sampled index matches.' : 'No sampled indexes yet.'}
+            >
+                {options.map((i) => (
+                    <ComboBox.Option
+                        key={i.name}
+                        value={i.name}
+                        description={sample.agents > 1 ? `${formatCount(i.agents)} of ${formatCount(sample.agents)} agents` : undefined}
+                    />
+                ))}
+            </ComboBox>
+        </ControlGroup>
     );
 }
 
@@ -193,14 +244,7 @@ export default function NewPromotion({ catalog, forwarders, onSubmitted, onOpenT
                             </ControlGroup>
                         </Field>
                         <Field $flex="1 1 200px">
-                            <ControlGroup
-                                label="Index filter"
-                                labelPosition="top"
-                                help={indexError || 'Wildcards allowed; * promotes all indexes.'}
-                                error={!!indexError}
-                            >
-                                <Text value={indexFilter} onChange={(e, { value }) => setIndexFilter(value)} />
-                            </ControlGroup>
+                            <IndexFilterField sourcetype={sourcetype} value={indexFilter} onChange={setIndexFilter} />
                         </Field>
                         <Field $flex="1 1 200px">
                             <TargetIndexField value={targetIndex} onChange={setTargetIndex} />

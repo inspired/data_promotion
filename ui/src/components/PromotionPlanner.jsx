@@ -12,7 +12,7 @@ import {
 import {
     DAY, coverage, dataSegments, domainOf, formatSpan, formatUtc, overlapping, parseUtc, promotionSegments,
 } from '../lib/timeline';
-import { ForwarderPicker, TargetIndexField, TargetIndexNotice } from './NewPromotion';
+import { ForwarderPicker, IndexFilterField, TargetIndexField, TargetIndexNotice } from './NewPromotion';
 import { Field, Row, Stack } from './Layout';
 import Timeline from './Timeline';
 
@@ -182,14 +182,7 @@ export default function PromotionPlanner({
                             </Field>
                         )}
                         <Field $flex="1 1 200px">
-                            <ControlGroup
-                                label="Index filter"
-                                labelPosition="top"
-                                help={validateIndexFilter(indexFilter) || 'Wildcards allowed; * promotes all indexes.'}
-                                error={!!validateIndexFilter(indexFilter)}
-                            >
-                                <Text value={indexFilter} onChange={(e, { value }) => setIndexFilter(value)} />
-                            </ControlGroup>
+                            <IndexFilterField sourcetype={sourcetype} value={indexFilter} onChange={setIndexFilter} />
                         </Field>
                         <Field $flex="1 1 200px">
                             <TargetIndexField value={targetIndex} onChange={setTargetIndex} />

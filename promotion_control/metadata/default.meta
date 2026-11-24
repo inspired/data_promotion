@@ -26,6 +26,14 @@ export = none
 access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
 export = none
 
+[collections/promotion_fields]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
+[transforms/promotion_fields]
+access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+export = none
+
 [collections/promotion_tasks]
 access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
 export = none

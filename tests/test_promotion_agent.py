@@ -363,7 +363,7 @@ class TestCatalog(Base):
         self.write_hour(H06 + HOUR, [event(H06 + HOUR + 1)])
         self.write_hour(H06, [event(H06 + 1)], guid=GUID2)
         self.write_hour(H06, [event(H06 + 1, st="other")], st="other")
-        parts, sources, served = ra.build_catalog(self.backend, AGENT, now=5)
+        parts, sources, served, _ = ra.build_catalog(self.backend, AGENT, now=5)
         rows = {r["_key"]: r for r in parts}
         r = rows["%s|splunkd|2026-11-19" % GUID]
         self.assertEqual((r["files"], r["earliest"], r["latest"], r["forwarders"], r["agent"]),
@@ -388,6 +388,85 @@ class TestCatalog(Base):
         state = ra.run_once(self.cfg, self.kv, self.backend, AGENT, {}, self.sink, now=1000)
         a = self.kv.get(ra.AGENTS, GUID)
         self.assertEqual((a["hostname"], a["forwarders"]), ("hf1", 1))
+        self.assertEqual(state["served"], {GUID: ["splunkd"]})
+
+
+class TestFieldSampling(Base):
+    def publish(self, cache=None, now=100):
+        newest = ra.build_catalog(self.backend, AGENT, newest_per_sourcetype=2)[3]
+        return ra.publish_fields(self.kv, self.cfg, self.backend, AGENT, newest, cache or {}, now)
+
+    def test_newest_files_per_sourcetype(self):
+        old = self.write_hour(H06, [event(H06 + 1)])
+        mid = self.write_hour(H06 + HOUR, [event(H06 + HOUR + 1)])
+        new = self.write_hour(H06 + 2 * HOUR, [event(H06 + 2 * HOUR + 1)])
+        newest = ra.build_catalog(self.backend, AGENT, newest_per_sourcetype=2)[3]
+        self.assertEqual([n for n, _ in newest["splunkd"]], [new, mid])
+        self.assertNotIn(old, [n for n, _ in newest["splunkd"]])
+        self.assertEqual(ra.build_catalog(self.backend, AGENT)[3], {})
+
+    def test_publishes_envelope_values_and_field_names_only(self):
+        evs = [event(H06 + i, index="main") for i in range(3)] + [event(H06 + 9, index="_internal")]
+        evs[0]["fields"]["secret"] = "s3cr3t"
+        evs.append({"time": H06, "event": "x", "index": "loop", "fields": {ra.JOB_FIELD: "j0"}})
+        self.write_hour(H06, evs, gz=True)
+        self.publish()
+        row = self.kv.get(ra.FIELDS, "%s|splunkd" % GUID)
+        self.assertEqual(row["indexes"], ["main", "_internal"])
+        self.assertEqual(row["hosts"], ["h1"])
+        self.assertEqual(row["indexed_fields"], ["node_guid", "secret"])
+        self.assertEqual((row["events_sampled"], row["files_sampled"], row["agent"]), (4, 1, GUID))
+        self.assertNotIn("s3cr3t", json.dumps(row))
+        self.assertNotIn("msg at", json.dumps(row))
+
+    def test_line_and_value_limits(self):
+        self.cfg.cp.read_dict({"agent": {"sample_lines": "5", "sample_max_values": "2"}})
+        self.write_hour(H06, [dict(event(H06 + i), host="h%d" % i) for i in range(10)])
+        self.publish()
+        row = self.kv.get(ra.FIELDS, "%s|splunkd" % GUID)
+        self.assertEqual((row["events_sampled"], len(row["hosts"]), row["hosts_truncated"]), (5, 2, True))
+
+    def test_cut_off_head_is_tolerated(self):
+        import gzip
+        name = self.write_hour(H06, [event(H06 + i) for i in range(50)])
+        p = os.path.join(self.backend.root, "year=2026", "month=11", "day=19", "sourcetype=splunkd")
+        with open(os.path.join(p, name), "rb") as f:
+            body = gzip.compress(f.read())[:200]
+        os.remove(os.path.join(p, name))
+        with open(os.path.join(p, name + ".gz"), "wb") as f:
+            f.write(body)
+        self.publish()
+        self.assertEqual(self.kv.get(ra.FIELDS, "%s|splunkd" % GUID)["files_sampled"], 1)
+
+    def test_unchanged_files_are_not_read_again(self):
+        from unittest import mock
+        self.write_hour(H06, [event(H06 + 1)])
+        cache = self.publish(now=100)
+        with mock.patch.object(ra, "sample_sourcetype") as sample:
+            cache2 = self.publish(cache, now=200)
+            sample.assert_not_called()
+        self.assertEqual(cache2, cache)
+        self.assertEqual(self.kv.get(ra.FIELDS, "%s|splunkd" % GUID)["updated_at"], 200)
+        self.write_hour(H06 + HOUR, [event(H06 + HOUR + 1, index="new")])
+        self.publish(cache2, now=300)
+        self.assertEqual(self.kv.get(ra.FIELDS, "%s|splunkd" % GUID)["indexes"], ["_internal", "new"])
+
+    def test_removes_only_own_stale_rows(self):
+        self.kv.put(ra.FIELDS, "%s|gone" % GUID, {"agent": GUID, "updated_at": 1})
+        self.kv.put(ra.FIELDS, "%s|x" % GUID2, {"agent": GUID2, "updated_at": 1})
+        self.write_hour(H06, [event(H06 + 1)])
+        self.publish()
+        self.assertEqual(sorted(self.kv.data[ra.FIELDS]), sorted(["%s|splunkd" % GUID, "%s|x" % GUID2]))
+
+    def test_run_once_samples_and_failure_does_not_block_jobs(self):
+        from unittest import mock
+        self.write_hour(H06, [event(H06 + 1)])
+        state = ra.run_once(self.cfg, self.kv, self.backend, AGENT, {}, self.sink, now=1000)
+        self.assertIn("splunkd", state["field_samples"])
+        with mock.patch.object(ra, "publish_fields", side_effect=RuntimeError("boom")), \
+                mock.patch.object(ra, "process_jobs") as jobs:
+            state = ra.run_once(self.cfg, self.kv, self.backend, AGENT, {}, self.sink, now=1000)
+        jobs.assert_called_once()
         self.assertEqual(state["served"], {GUID: ["splunkd"]})
 
 

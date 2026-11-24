@@ -25,6 +25,11 @@ export const fetchAgents = async () => [
     })),
 ];
 export const fetchForwarderNames = async () => [];
+export const fetchFieldSamples = async (st) => Array.from({ length: 40 }, (_, i) => ({
+    agent: G(i), events_sampled: 600, sampled_at: now - 300,
+    indexes: st === 'splunkd' ? ['_internal', ...(i % 3 ? [] : ['_audit'])] : ['main', ...(i % 4 ? [] : [`${st.split(':')[0]}_archive`])],
+    indexed_fields: i % 2 ? ['node_guid'] : [],
+}));
 const base = { sourcetype: 'splunkd', index_filter: '*', earliest: 1795046400, latest: 1795179600, submitted_by: 'admin' };
 export const fetchJobs = async () => [
     { ...base, _key: 'j1', job_id: '20261123-142538-99255a', status: 'completed', target_index: 'promotion_test', forwarders: '*', agents_expected: 1500, agents_reported: 1500, files_total: 108000, files_done: 108000, bytes_read: 2.1e12, events_staged: 844426000, events_indexed: 844426000, submitted_at: now - 4000, started_at: now - 3990, finished_at: now - 3000, completed_at: now - 2800, message: '844426000 of 844426000 events indexed' },

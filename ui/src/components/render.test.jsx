@@ -11,7 +11,8 @@ import JobPanel from './JobPanel';
 import JobsTable from './JobsTable';
 import PromotionPlanner from './PromotionPlanner';
 import AgentView from './AgentView';
-import { fetchAgentCatalog, submitPromotion } from '../lib/api';
+import { fetchAgentCatalog, fetchFieldSamples, submitPromotion } from '../lib/api';
+import { IndexFilterField } from './NewPromotion';
 
 // SplunkwebConnector talks to splunkd (time parsing, capabilities); pass children through.
 jest.mock('@splunk/react-time-range/SplunkwebConnector', () => ({
@@ -27,6 +28,10 @@ jest.mock('../lib/api', () => ({
     runSearch: jest.fn(() => Promise.resolve([])),
     submitPromotion: jest.fn(() => Promise.resolve({ job_id: 'new1', status: 'pending' })),
     fetchAgentCatalog: jest.fn(() => Promise.resolve([])),
+    fetchFieldSamples: jest.fn(() => Promise.resolve([
+        { agent: 'a1', indexes: ['_internal', 'main'], indexed_fields: ['node_guid'], events_sampled: 200, sampled_at: 1 },
+        { agent: 'a2', indexes: ['_internal'], indexed_fields: [], events_sampled: 200, sampled_at: 2 },
+    ])),
     cancelJob: jest.fn(() => Promise.resolve({})),
     fetchTasks: jest.fn(() => Promise.resolve([
         { _key: 't1', agent_host: 'hf-osl-0001', status: 'done', files_done: 3, files_total: 3, events_staged: 1000, message: 'ok' },
@@ -232,6 +237,19 @@ test('NewPromotion: destination index shows the notice and is validated', async 
     await act(async () => typeInto(input, 'Bad Index'));
     expect(text()).not.toContain('must already exist on the indexers');
     expect(text()).toContain('Use lowercase letters');
+});
+
+test('IndexFilterField suggests the sampled indexes of the sourcetype', async () => {
+    const { text } = await render(<IndexFilterField sourcetype="splunkd" value="*" onChange={() => {}} />);
+    expect(fetchFieldSamples).toHaveBeenCalledWith('splunkd');
+    expect(text()).toContain('2 indexes seen in sampled events.');
+});
+
+test('IndexFilterField keeps working without a sample', async () => {
+    fetchFieldSamples.mockResolvedValueOnce([]);
+    const { text } = await render(<IndexFilterField sourcetype="syslog" value="ma*" onChange={() => {}} />);
+    expect(text()).toContain('Wildcards allowed');
+    expect(text()).not.toContain('seen in sampled events');
 });
 
 test('AgentView lists the agent datasets and promotes from that agent only', async () => {

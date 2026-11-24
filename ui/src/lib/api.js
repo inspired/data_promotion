@@ -6,7 +6,7 @@
 import SearchJob from '@splunk/search-job';
 import { createRESTURL } from '@splunk/splunk-utils/url';
 import { getDefaultFetchInit, handleResponse, handleError } from '@splunk/splunk-utils/fetch';
-import { APP, JOBS, CATALOG, SOURCES, FORWARDER_NAMES, TASKS, AGENTS, CATALOG_SEARCH, cancelledStatus, submitSearch } from './promotion';
+import { APP, JOBS, CATALOG, SOURCES, FORWARDER_NAMES, TASKS, AGENTS, FIELDS, CATALOG_SEARCH, cancelledStatus, submitSearch } from './promotion';
 
 function kvURL(collection, key) {
     const path = `storage/collections/data/${collection}${key ? `/${encodeURIComponent(key)}` : ''}`;
@@ -64,6 +64,15 @@ export function fetchAgentCatalog(agentGuid) {
 /** Per-agent, per-writer summary published by the agents. */
 export function fetchSources() {
     return kvGet(SOURCES, { fields: 'agent,guid,sourcetypes,days,files,bytes,earliest,latest' });
+}
+
+/** Sampled indexes and indexed field names of one sourcetype, one row per agent. */
+export function fetchFieldSamples(sourcetype) {
+    return kvGet(FIELDS, {
+        query: JSON.stringify({ sourcetype }),
+        fields: 'agent,indexes,indexed_fields,events_sampled,sampled_at',
+        limit: '0',
+    });
 }
 
 /** Registered promotion agents (each agent writes its own row). */
