@@ -11,8 +11,8 @@ import JobsTable from './components/JobsTable';
 import { Page, Stack } from './components/Layout';
 import NewPromotion from './components/NewPromotion';
 import PromotionPlanner from './components/PromotionPlanner';
-import { fetchAgents, fetchCatalog, fetchForwarderNames, fetchJobs, fetchSources } from './lib/api';
-import { buildForwarders, formatCount, sortJobs, statusMeta, summarizeCatalog } from './lib/promotion';
+import { fetchCatalog, fetchForwarders, fetchJobs } from './lib/api';
+import { formatCount, sortJobs, statusMeta, summarizeCatalog } from './lib/promotion';
 
 const POLL_ACTIVE_MS = 5000;
 const POLL_IDLE_MS = 30000;
@@ -22,9 +22,7 @@ export default function DataPromotion() {
     const [tab, setTab] = useState('jobs');
     const [jobs, setJobs] = useState([]);
     const [catalogRows, setCatalogRows] = useState([]);
-    const [sources, setSources] = useState([]);
-    const [names, setNames] = useState([]);
-    const [agentRows, setAgentRows] = useState([]);
+    const [forwarders, setForwarders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [selectedKey, setSelectedKey] = useState(null);
@@ -45,14 +43,12 @@ export default function DataPromotion() {
 
     const loadCatalog = useCallback(async () => {
         try {
-            // Each source is optional: one failing (e.g. no names yet) must not hide the others.
-            const results = await Promise.allSettled([fetchCatalog(), fetchSources(), fetchAgents(), fetchForwarderNames()]);
-            const [c, s, a, n] = results.map((r) => (r.status === 'fulfilled' ? r.value : null));
+            // One failing must not hide the other.
+            const results = await Promise.allSettled([fetchCatalog(), fetchForwarders()]);
+            const [c, f] = results.map((r) => (r.status === 'fulfilled' ? r.value : null));
             if (c) setCatalogRows(c);
-            if (s) setSources(s);
-            if (a) setAgentRows(a);
-            if (n) setNames(n);
-            const failed = results.find((r, i) => r.status === 'rejected' && i < 3);
+            if (f) setForwarders(f);
+            const failed = results.find((r) => r.status === 'rejected');
             if (failed) setError(failed.reason && failed.reason.message ? failed.reason.message : String(failed.reason));
         } catch (e) {
             setError(e.message);
@@ -75,7 +71,6 @@ export default function DataPromotion() {
     }, [jobs, anyActive, loadJobs]);
 
     const catalog = useMemo(() => summarizeCatalog(catalogRows), [catalogRows]);
-    const forwarders = useMemo(() => buildForwarders(sources, agentRows, names), [sources, agentRows, names]);
     const staleForwarders = forwarders.filter((f) => f.status === 'stale').length;
     const nameByGuid = useMemo(() => {
         const m = {};

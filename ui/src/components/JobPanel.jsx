@@ -11,7 +11,7 @@ import Table from '@splunk/react-ui/Table';
 import Typography from '@splunk/react-ui/Typography';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import { createURL } from '@splunk/splunk-utils/url';
-import { cancelJob, fetchTasks, runSearch } from '../lib/api';
+import { cancelJob, fetchTasks, submitPromotion, verifyJob } from '../lib/api';
 import {
     canCancel,
     canOpenInSearch,
@@ -26,8 +26,6 @@ import {
     parseForwarders,
     searchParams,
     statusMeta,
-    submitSearch,
-    verifySearch,
 } from '../lib/promotion';
 import { JobProgress } from './JobsTable';
 import { JobStatus, TaskStatus } from './Status';
@@ -118,17 +116,15 @@ function AgentTasks({ job }) {
     );
 }
 
-/** Indexed-event breakdown for a job, straight from tstats on promote_job. */
+/** Indexed-event breakdown for a job (API: GET jobs/<id>/verify, tstats on promote_job). */
 function Verify({ job }) {
     const [state, setState] = useState({ loading: false, rows: null, error: null });
 
     const run = async () => {
         setState({ loading: true, rows: null, error: null });
         try {
-            const earliest = String(Math.floor(num(job.earliest)));
-            const latest = String(Math.ceil(num(job.latest)) + 1);
-            const rows = await runSearch(verifySearch(job.job_id), earliest, latest);
-            setState({ loading: false, rows, error: null });
+            const { items } = await verifyJob(job.job_id);
+            setState({ loading: false, rows: items || [], error: null });
         } catch (e) {
             setState({ loading: false, rows: null, error: e.message });
         }
@@ -226,23 +222,27 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
     };
 
     const doCancel = perform(async () => {
-        await cancelJob(job._key);
+        await cancelJob(job.job_id);
         onChanged();
     });
 
     const doAgain = perform(async () => {
-        const earliest = String(Math.floor(num(job.earliest)));
-        const latest = String(Math.ceil(num(job.latest)));
-        const spl = submitSearch(job.sourcetype, job.index_filter || '*', parseForwarders(job.forwarders), job.target_index);
-        const rows = await runSearch(spl, earliest, latest);
-        onChanged(rows[0] && rows[0].job_id);
+        const { job: again } = await submitPromotion({
+            sourcetype: job.sourcetype,
+            indexFilter: job.index_filter || '*',
+            forwarders: parseForwarders(job.forwarders),
+            targetIndex: job.target_index,
+            earliest: Math.floor(num(job.earliest)),
+            latest: Math.ceil(num(job.latest)),
+        });
+        onChanged(again.job_id);
     });
 
     const runtime = num(job.finished_at) && num(job.started_at) ? num(job.finished_at) - num(job.started_at) : null;
     const toIndexed = num(job.completed_at) && num(job.finished_at) ? num(job.completed_at) - num(job.finished_at) : null;
     const forwarderText = describeForwarders(job, nameByGuid);
     const fromText = forwarderText === 'All forwarders' ? 'all forwarders' : forwarderText;
-    const warn = ['failed', 'rejected', 'incomplete'].includes(job.status);
+    const warn = ['failed', 'incomplete'].includes(job.status);
 
     return (
         <SidePanel open dockPosition="right" onRequestClose={onClose} innerStyle={SIDE_PANEL_INNER}>

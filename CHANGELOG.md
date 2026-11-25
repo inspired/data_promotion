@@ -2,6 +2,21 @@
 
 Each release lists the version of the Search Head app and of the agent add-on. Download them from [Releases](../../releases).
 
+## 3.0.0 (2026-11-25)
+
+`promotion_control` 3.0.0 · `TA-promotion_agent` 2.2.0 (unchanged)
+
+### Changes
+- **REST API.** The Search Head app has an API under `/services/data_promotion`: list what the edge archives hold and the forwarders, estimate a promotion, create, follow, cancel and verify jobs. Splunk SOAR, scripts and other tools can now promote data. See [REST API](docs/api.md), which includes a SOAR example.
+- **The page uses the same API.** Checks, the size estimate and the forwarder list are worked out on the Search Head, once, for the page and every other caller. A job that isn't valid is refused with the reason and is no longer stored as `rejected`.
+- **Users need a capability, not KV store access.** The `promotion_user` role now grants the `promote_data` capability, which the page and the API need. Users no longer read or write the app's collections directly.
+- **Own role for the forwarders.** The new `promotion_agent` role is for the forwarders' service account. It can only read jobs and write the forwarders' own records.
+- **Search macros removed.** `promote_submit`, `promote_cancel` and `promote_verify` are gone; use the page or the API.
+
+### Install / upgrade
+- Give the forwarders' service account the `promotion_agent` role. With only `promotion_user` it can no longer reach the KV store, and the forwarders stop reporting.
+- Restart the Search Head (new `restmap.conf`, `web.conf` and `authorize.conf`).
+
 ## 2.2.0 (2026-11-25)
 
 `promotion_control` 2.2.0 · `TA-promotion_agent` 2.2.0

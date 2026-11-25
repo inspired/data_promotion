@@ -11,6 +11,7 @@
   <a href="#try-it"><b>Try it</b></a> ·
   <a href="docs/user-guide.md"><b>User guide</b></a> ·
   <a href="docs/admin-guide.md"><b>Admin guide</b></a> ·
+  <a href="docs/api.md"><b>REST API</b></a> ·
   <a href="CHANGELOG.md"><b>Changelog</b></a> ·
   <a href="../../issues"><b>Report a problem</b></a>
 </p>
@@ -56,7 +57,7 @@
     </td>
     <td valign="top">
       <h3>Follow every job</h3>
-      Progress per forwarder, a live count of indexed events, and <b>Open in Search</b>. Every promoted event carries <code>promote_job=&lt;job id&gt;</code>.
+      Progress per forwarder, a live count of indexed events, and <b>Open in Search</b>. Every promoted event carries <code>promote_job=&lt;job id&gt;</code>. Splunk SOAR and scripts can do it all through the <a href="docs/api.md">REST API</a>.
     </td>
   </tr>
 </table>
@@ -126,7 +127,8 @@ To run it across sites, with a Search Head and many forwarders, see the [admin g
 
 | | |
 |---|---|
-| [**User guide**](docs/user-guide.md) | Promote data, use the timeline, follow jobs, and promote from search. |
+| [**User guide**](docs/user-guide.md) | Promote data, use the timeline and follow jobs. |
+| [**REST API**](docs/api.md) | Promote from Splunk SOAR, scripts and other tools. |
 | [**Admin guide**](docs/admin-guide.md) | Install, connect forwarders, Ingest Actions rules, settings and limits. |
 | [**Changelog**](CHANGELOG.md) | What changed in every release. |
 

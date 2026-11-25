@@ -157,7 +157,7 @@ const forwarderColumns = (onOpen) => [
         render: (r) => (r.earliest ? `${formatEpochShort(r.earliest).slice(0, 10)} – ${formatEpochShort(r.latest).slice(0, 10)}` : '–'),
     },
     { key: 'version', label: 'Version', render: (r) => r.version || '–' },
-    { key: 'lastSeen', label: 'Last seen', render: (r) => ago(r.lastSeen) },
+    { key: 'last_seen', label: 'Last seen', render: (r) => ago(r.last_seen) },
 ];
 
 /** What the forwarders hold: per sourcetype and UTC day. */

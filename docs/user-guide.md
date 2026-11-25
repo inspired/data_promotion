@@ -1,6 +1,6 @@
 # User guide
 
-Data Promotion brings data back from the **edge archives**, the Ingest Actions copies kept at remote sites, into Splunk when you need it. This guide covers the **Data Promotion** page and the search macros.
+Data Promotion brings data back from the **edge archives**, the Ingest Actions copies kept at remote sites, into Splunk when you need it. This guide covers the **Data Promotion** page.
 
 To promote data you need the `promotion_user` role. Ask your Splunk admin if you don't see the app.
 
@@ -8,7 +8,7 @@ To promote data you need the `promotion_user` role. Ask your Splunk admin if you
 - [Pick a range on the timeline](#pick-a-range-on-the-timeline)
 - [Follow a job](#follow-a-job)
 - [See what the edge archives hold](#see-what-the-edge-archives-hold)
-- [Promote from search](#promote-from-search)
+- [Promote from SOAR or a script](#promote-from-soar-or-a-script)
 - [Find promoted events](#find-promoted-events)
 - [Job states](#job-states)
 - [Good to know](#good-to-know)
@@ -65,19 +65,9 @@ Click a job on the **Jobs** tab to open its details:
 
 The catalog is refreshed every 15 minutes, so very recent data can take a little while to appear.
 
-## Promote from search
+## Promote from SOAR or a script
 
-The search's time picker sets the range.
-
-| Task | Search |
-|---|---|
-| Promote | ``| `promote_submit(<sourcetype>, <index filter>, <forwarders>, <destination index>)` `` |
-| All indexes, all forwarders, original index | ``| `promote_submit(splunkd, *, *, *)` `` |
-| Two forwarders, into `promotion_test` | ``| `promote_submit(splunkd, *, 5A8D3399-FD7B-41CB-B0A9-23CC0BCE0EF8 BF6301FD-4484-45FA-802E-F657F1AFB5F7, promotion_test)` `` |
-| Cancel a job | ``| `promote_cancel(<job id>)` `` |
-| Count a job's indexed events | ``| `promote_verify(<job id>)` `` |
-
-Forwarders are given as server GUIDs separated by spaces, or `*` for all.
+Everything the page does goes through the app's REST API, so Splunk SOAR, scripts and other tools can promote data too: list what the edge archives hold, estimate, create a job, follow it and count its events. See the [REST API](api.md) reference, which has a SOAR example.
 
 ## Find promoted events
 
@@ -99,7 +89,6 @@ Every promoted event carries the indexed field `promote_job`:
 | `completed` | Every promoted event is searchable and every forwarder succeeded. |
 | `incomplete` | Some forwarders failed or didn't report, or events were still missing after 30 minutes. It is checked again for 24 hours. The job's message says why. |
 | `failed` | No forwarder picked the job up within 30 minutes, or every forwarder failed. |
-| `rejected` | The job couldn't start, for example because no forwarder holds the data. |
 | `cancel_requested` → `cancelled` | Cancelled. Every forwarder stops after its current file. |
 
 ## Good to know

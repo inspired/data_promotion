@@ -36,7 +36,7 @@ export function dataSegments(rows, sourcetype) {
  */
 export function promotionSegments(jobs, sourcetype) {
     const segs = jobs
-        .filter((j) => j.sourcetype === sourcetype && j.status !== 'rejected')
+        .filter((j) => j.sourcetype === sourcetype)
         .map((j) => ({
             key: j._key || j.job_id,
             jobId: j.job_id,

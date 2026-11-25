@@ -1,12 +1,10 @@
 import {
-    buildForwarders,
     canOpenInSearch,
     eventsSearch,
     jobsForForwarder,
     searchParams,
     validateTargetIndex,
     resolveColorScheme,
-    cancelledStatus,
     describeForwarders,
     filterForwarders,
     forwardersWithSourcetype,
@@ -22,20 +20,14 @@ import {
     progressOf,
     sortJobs,
     statusMeta,
-    submitSearch,
     summarizeCatalog,
     validateIndexFilter,
     validateSourcetype,
     validateTimeRange,
-    verifySearch,
     approxTime,
     rangeSeconds,
     isLongRangeToOriginalIndex,
     LONG_RANGE_SECONDS,
-    sizeEstimateSearch,
-    agentsForSelection,
-    summarizeEstimate,
-    DEFAULT_MAX_BYTES_PER_JOB,
 } from './promotion';
 
 const G1 = '5A8D3399-FD7B-41CB-B0A9-23CC0BCE0EF8';
@@ -67,41 +59,7 @@ describe('range length', () => {
     });
 });
 
-describe('size estimate', () => {
-    test('search: one sourcetype, optional agents, range from addinfo', () => {
-        const all = sizeEstimateSearch('splunkd');
-        expect(all).toMatch(/^\| inputlookup promotion_catalog where sourcetype="splunkd" \| addinfo/);
-        expect(all).toContain('lookup promotion_agents guid AS agent OUTPUT hostname max_bytes_per_job');
-        const some = sizeEstimateSearch('splunkd', [G1.toLowerCase(), G2]);
-        expect(some).toContain(`| where agent="${G1}" OR agent="${G2}" |`);
-        expect(() => sizeEstimateSearch('x" | delete')).toThrow(/sourcetype/);
-        expect(() => sizeEstimateSearch('splunkd', ['nope" OR 1'])).toThrow(/GUID/);
-    });
-
-    test('selected forwarders map to the agents holding their files', () => {
-        const fwds = [{ guid: G1, agents: [G1] }, { guid: G2, agents: [G1] }, { guid: 'C', agents: [] }];
-        expect(agentsForSelection(fwds, [])).toEqual([]);
-        expect(agentsForSelection(fwds, [G2.toLowerCase()])).toEqual([G1]);
-        expect(agentsForSelection(fwds, ['C'])).toEqual(['C']);
-    });
-
-    test('summary: totals, largest, agents over their limit (reported or default)', () => {
-        const s = summarizeEstimate([
-            { agent: G1, hostname: 'hf1', bytes: '100', max_bytes_per_job: '50', earliest: '1000', latest: '87400' },
-            { agent: G2, bytes: String(DEFAULT_MAX_BYTES_PER_JOB + 1), max_bytes_per_job: '' },
-            { agent: 'C', hostname: 'hf3', bytes: '10', max_bytes_per_job: '50' },
-            { agent: 'D', hostname: 'empty', bytes: '0' },
-        ]);
-        expect(s.agents).toBe(3);
-        expect(s.bytes).toBe(110 + DEFAULT_MAX_BYTES_PER_JOB + 1);
-        expect(s.largest.name).toBe(G2);
-        expect(s.over.map((r) => [r.name, r.limitReported])).toEqual([[G2, false], ['hf1', true]]);
-        expect(s.seconds).toBe(86400);
-        expect(summarizeEstimate([])).toEqual({ agents: 0, bytes: 0, largest: null, over: [], seconds: null });
-    });
-});
-
-describe('validation and SPL builders', () => {
+describe('validation and search links', () => {
     test('sourcetype', () => {
         expect(validateSourcetype('splunkd')).toBeNull();
         expect(validateSourcetype('aws:cloudtrail')).toBeNull();
@@ -126,18 +84,6 @@ describe('validation and SPL builders', () => {
         expect(validateTimeRange('', 'now')).toMatch(/bounded/);
         expect(validateTimeRange(null, 'now')).toMatch(/bounded/);
         expect(validateTimeRange('rt-5m', 'rt')).toMatch(/Real-time/);
-    });
-
-    test('submitSearch', () => {
-        expect(submitSearch('splunkd', '*')).toBe('| `promote_submit(splunkd, *, *, *)`');
-        expect(submitSearch('splunkd', '', [])).toBe('| `promote_submit(splunkd, *, *, *)`');
-        expect(submitSearch('splunkd', '*', [G1.toLowerCase(), G2]))
-            .toBe(`| \`promote_submit(splunkd, *, ${G1} ${G2}, *)\``);
-        expect(submitSearch('splunkd', '*', [G1], ' promotion_test ')).toBe(`| \`promote_submit(splunkd, *, ${G1}, promotion_test)\``);
-        expect(() => submitSearch('splunkd', '*', [], 'x) | delete')).toThrow(/Destination index/);
-        expect(() => submitSearch('splunkd', '*', ['x) | delete'])).toThrow(/Invalid forwarder/);
-        expect(() => submitSearch('bad st', '*')).toThrow();
-        expect(() => submitSearch('splunkd', 'x,y')).toThrow();
     });
 
     test('destination index', () => {
@@ -170,10 +116,6 @@ describe('validation and SPL builders', () => {
         expect(jobsForForwarder(jobs, G1.toLowerCase()).map((j) => j.job_id)).toEqual(['a', 'b']);
     });
 
-    test('verifySearch', () => {
-        expect(verifySearch('20261123-142538-99255a')).toContain('promote_job="20261123-142538-99255a"');
-        expect(() => verifySearch('x" OR index=*')).toThrow();
-    });
 });
 
 describe('status', () => {
@@ -186,9 +128,6 @@ describe('status', () => {
         expect(canCancel({ status: 'pending' })).toBe(true);
         expect(canCancel({ status: 'running' })).toBe(true);
         expect(canCancel({ status: 'staged' })).toBe(false);
-        expect(cancelledStatus('pending')).toBe('cancelled');
-        expect(cancelledStatus('running')).toBe('cancel_requested');
-        expect(cancelledStatus('completed')).toBeNull();
     });
 
     test('progress uses the unit of the current phase', () => {
@@ -255,30 +194,8 @@ describe('collections', () => {
 });
 
 describe('forwarders', () => {
-    const sources = [
-        { agent: G1, guid: G1.toLowerCase(), sourcetypes: ['splunkd', 'syslog'], files: 3, bytes: 10, days: 1 },
-        { agent: G1, guid: G2, sourcetypes: 'splunkd', files: 1, bytes: 5, days: 1 },
-    ];
-
-    test('buildForwarders: name, version and heartbeat from the forwarder\'s own registration', () => {
-        const f = buildForwarders(sources, [{ guid: G1, hostname: 'splunk1', agent_version: '1.2.1', last_seen: 1000 }], [], 1100);
-        expect(f.map((x) => x.label)).toEqual([G2, 'splunk1']);
-        expect(f[1]).toMatchObject({ guid: G1, hostname: 'splunk1', status: 'reporting', version: '1.2.1', sourcetypes: ['splunkd', 'syslog'] });
-        expect(f[0]).toMatchObject({ sourcetypes: ['splunkd'], hostname: null, status: 'unregistered' });
-        // G2's files are held by agent G1 (shared store); G1 holds its own.
-        expect(f.map((x) => x.agents)).toEqual([[G1], [G1]]);
-    });
-
-    test('buildForwarders: stale heartbeat, metric-name fallback, registered without data', () => {
-        const f = buildForwarders(sources, [{ guid: G1, hostname: 'splunk1', last_seen: 100 }, { guid: 'C0FFEE00-0000-0000-0000-000000000000', hostname: 'empty-hf', last_seen: 100 }],
-            [{ guid: G2, hostname: 'hf9' }], 100 + 16 * 60);
-        expect(f.find((x) => x.guid === G1).status).toBe('stale');
-        expect(f.find((x) => x.guid === G2).hostname).toBe('hf9');
-        expect(f.find((x) => x.hostname === 'empty-hf')).toMatchObject({ files: 0, sourcetypes: [] });
-    });
-
     test('forwardersWithSourcetype', () => {
-        const f = buildForwarders(sources, []);
+        const f = [{ guid: G1, sourcetypes: ['splunkd', 'syslog'] }, { guid: G2, sourcetypes: ['splunkd'] }];
         expect(forwardersWithSourcetype(f, 'syslog').map((x) => x.guid)).toEqual([G1]);
         expect(forwardersWithSourcetype(f, '').length).toBe(2);
     });

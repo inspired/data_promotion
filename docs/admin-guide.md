@@ -32,7 +32,7 @@ There are two apps:
 
 | App | Runs on | Does |
 |---|---|---|
-| `promotion_control` | Search Head | The Data Promotion page, the KV store collections for jobs, forwarders and the catalog, the `promote_*` macros, and the searches that track jobs. |
+| `promotion_control` | Search Head | The Data Promotion page, the [REST API](api.md) it uses (also for SOAR and scripts), the KV store collections for jobs, forwarders and the catalog, and the searches that track jobs. |
 | `TA-promotion_agent` | Every Heavy Forwarder with an edge archive | A Python scripted input (standard library only; S3 through the AWS CLI). It reports what the archive holds and promotes from it. |
 
 Each forwarder tells the Search Head what its edge archive holds, but never sends event contents until you promote them:
@@ -64,7 +64,7 @@ sequenceDiagram
     SH-->>U: job completed (n of n events indexed)
 ```
 
-1. **Submit.** The page, or the `promote_submit` macro, writes a job to the `promotion_jobs` collection and counts how many forwarders hold matching data.
+1. **Submit.** The page, SOAR or a script calls the [REST API](api.md) (`POST jobs`). It checks the request, writes a job to the `promotion_jobs` collection and counts how many forwarders hold matching data.
 2. **Pick up.** Every forwarder whose edge archive holds data for the job writes its own task to `promotion_tasks`. Forwarders never overwrite each other's records.
 3. **Select and filter.** The forwarder picks files by day directory and the hours in their names, plus neighbouring files for late-arriving events. It keeps only events whose own timestamp is inside the range and whose index matches the filter, and adds `promote_job=<id>` (and the destination index, if set).
 4. **Send.** The filtered files are moved into `$SPLUNK_HOME/var/spool/splunk/promotion/<job>/` as `*.stash_hec`. Splunk's built-in `stash_hec` input reads them, and the forwarder sends them through its normal outputs. Each event keeps its sourcetype, host, source and index. Staged files are uncompressed, so the add-on stays at most `max_staged_bytes` ahead of the input: before each file it waits until the forwarder has sent enough of what is already staged.
@@ -77,8 +77,8 @@ Forwarders never search and never change the job itself; the Search Head owns th
 ### Search Head: `promotion_control`
 
 1. Install `promotion_control-<version>.spl`. On a search head cluster, deploy it through the deployer.
-2. Give the users who may promote data the `promotion_user` role.
-3. Create a service account for the forwarders with the `promotion_user` role, and an authentication token for it (**Settings → Tokens**). Token authentication must be enabled.
+2. Give the users who may promote data the `promotion_user` role. It grants the `promote_data` capability, which the page and the [REST API](api.md) need; users get no direct access to the KV store collections. For SOAR or another system, create a service account with this role.
+3. Create a service account for the forwarders with the `promotion_agent` role, and an authentication token for it (**Settings → Tokens**). Token authentication must be enabled. That role can only read jobs and write the forwarders' own records (tasks, catalog, heartbeat) in the KV store.
 4. Make sure the app owner (`nobody`) can search every index you promote into, including `_internal` if you promote it. **Promotion - Track indexing** runs as that owner.
 
 ### Every forwarder with an edge archive: `TA-promotion_agent`
@@ -204,21 +204,23 @@ Ingest Actions writes to each forwarder's own disk or bucket, so every such forw
 | A job stays `pending`, then `failed` | No forwarder picked it up within 30 minutes. Check that the forwarders holding the data are **Reporting**. |
 | A job ends `incomplete` | The job's message says which forwarders failed or which events are missing. Open the job for progress per forwarder. |
 | Indexed count stays below promoted | The app owner may not be able to search the target index, or the destination index doesn't exist on the indexers. |
+| The page or the API answers `403` | The user or service account lacks the `promote_data` capability: give it the `promotion_user` role. |
+| The page or the API answers `500` or `502` | `index=_internal source=*promotion_api.log` on the Search Head, and `splunkd.log` for the `data_promotion` REST handler. |
 | The page still shows the old version after an upgrade | Open `/_bump` on the Search Head. |
 
 ## Development
 
 | Path | What it is |
 |---|---|
-| [`promotion_control/`](../promotion_control) | The Search Head app. |
+| [`promotion_control/`](../promotion_control) | The Search Head app. Its [REST API](api.md) is in `bin/promotion_api.py`. |
 | [`TA-promotion_agent/`](../TA-promotion_agent) | The add-on for the forwarders. |
 | [`ui/`](../ui) | Source of the Data Promotion page (React, Splunk UI Toolkit). It is built into `promotion_control/appserver/static/pages/`, which is not committed. |
-| [`tests/`](../tests) | Unit tests for the add-on. |
+| [`tests/`](../tests) | Unit tests for the add-on and the REST API. |
 
 ### Test
 
 ```sh
-python3 -m unittest discover -s tests -v     # add-on
+python3 -m unittest discover -s tests -v     # add-on and REST API
 cd ui && npm ci && npm test                  # UI
 ```
 

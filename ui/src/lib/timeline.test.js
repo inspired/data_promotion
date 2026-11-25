@@ -15,7 +15,6 @@ const jobs = [
     { job_id: 'a', sourcetype: 'splunkd', status: 'completed', earliest: D0, latest: D0 + 10 * HOUR },
     { job_id: 'b', sourcetype: 'splunkd', status: 'running', earliest: String(D0 + 5 * HOUR), latest: String(D0 + 12 * HOUR) },
     { job_id: 'c', sourcetype: 'splunkd', status: 'failed', earliest: D0 + 10 * HOUR, latest: D0 + 11 * HOUR },
-    { job_id: 'd', sourcetype: 'splunkd', status: 'rejected', earliest: D0, latest: D0 + HOUR },
     { job_id: 'e', sourcetype: 'syslog', status: 'completed', earliest: D0, latest: D0 + HOUR },
 ];
 
@@ -25,7 +24,7 @@ test('dataSegments: one sorted segment per day of the sourcetype, widened to who
     expect(segs[1]).toMatchObject({ start: D0 + DAY, end: D0 + DAY + 5 * HOUR, files: 12, bytes: 100, forwarders: 2 });
 });
 
-test('promotionSegments: skips rejected and other sourcetypes, stacks overlaps on lanes', () => {
+test('promotionSegments: skips other sourcetypes, stacks overlaps on lanes', () => {
     const segs = promotionSegments(jobs, 'splunkd');
     expect(segs.map((s) => [s.jobId, s.lane])).toEqual([['a', 0], ['b', 1], ['c', 0]]);
 });

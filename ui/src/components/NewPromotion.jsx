@@ -15,6 +15,7 @@ import {
     filterForwarders,
     formatBytes,
     formatCount,
+    formatRange,
     forwardersWithSourcetype,
     indexOptions,
     mergeFieldSamples,
@@ -22,7 +23,6 @@ import {
     validateSourcetype,
     validateTargetIndex,
     validateTimeRange,
-    agentsForSelection,
     isLongRangeToOriginalIndex,
     rangeSeconds,
 } from '../lib/promotion';
@@ -156,7 +156,7 @@ export function LongRangeNotice({ seconds, targetIndex }) {
     );
 }
 
-/** Form for submitting a promotion job. Submission goes through the promote_submit macro. */
+/** Form for submitting a promotion job. Submission goes through the API (POST jobs). */
 export default function NewPromotion({ catalog, forwarders, onSubmitted, onOpenTimeline }) {
     const [sourcetype, setSourcetype] = useState('');
     const [earliest, setEarliest] = useState('-24h@h');
@@ -176,8 +176,7 @@ export default function NewPromotion({ catalog, forwarders, onSubmitted, onOpenT
         setSelected((prev) => prev.filter((g) => ok.has(g)));
     }, [candidates]);
 
-    const agents = useMemo(() => agentsForSelection(candidates, selected), [candidates, selected]);
-    const estimate = useSizeEstimate(sourcetype, agents, earliest, latest);
+    const estimate = useSizeEstimate(sourcetype, selected, earliest, latest);
     const estimated = estimate.summary && estimate.summary.seconds;
 
     const indexError = validateIndexFilter(indexFilter);
@@ -188,15 +187,14 @@ export default function NewPromotion({ catalog, forwarders, onSubmitted, onOpenT
         setBusy(true);
         setResult(null);
         try {
-            const row = await submitPromotion({
+            const { job, warnings } = await submitPromotion({
                 sourcetype, indexFilter, targetIndex, forwarders: selected, earliest, latest,
             });
-            if (row.status === 'rejected') {
-                setResult({ type: 'error', text: `Rejected: ${row.message}` });
-            } else {
-                setResult({ type: 'success', text: `Job ${row.job_id} queued for ${row.earliest} → ${row.latest}.` });
-            }
-            onSubmitted(row.job_id);
+            const queued = `Job ${job.job_id} queued for ${formatRange(job.earliest, job.latest)}.`;
+            setResult(warnings && warnings.length
+                ? { type: 'warning', text: `${queued} ${warnings.join(' ')}` }
+                : { type: 'success', text: queued });
+            onSubmitted(job.job_id);
         } catch (e) {
             setResult({ type: 'error', text: e.message });
         } finally {

@@ -7,7 +7,7 @@ import Text from '@splunk/react-ui/Text';
 import Typography from '@splunk/react-ui/Typography';
 import { submitPromotion } from '../lib/api';
 import {
-    agentsForSelection, formatBytes, formatCount, forwardersWithSourcetype, statusMeta, validateIndexFilter,
+    formatBytes, formatCount, forwardersWithSourcetype, statusMeta, validateIndexFilter,
     validateTargetIndex,
 } from '../lib/promotion';
 import {
@@ -87,13 +87,10 @@ export default function PromotionPlanner({
 
     const candidates = useMemo(() => forwardersWithSourcetype(forwarders, sourcetype), [forwarders, sourcetype]);
     const cover = coverage(selection, data);
-    const estimateAgents = useMemo(
-        () => (agent ? [agent.guid] : agentsForSelection(candidates, selected)),
-        [agent, candidates, selected],
-    );
+    const estimateForwarders = useMemo(() => (agent ? [agent.guid] : selected), [agent, selected]);
     const validRange = selection && selection.end > selection.start;
     const estimate = useSizeEstimate(
-        sourcetype, estimateAgents, validRange ? selection.start : null, validRange ? selection.end : null,
+        sourcetype, estimateForwarders, validRange ? selection.start : null, validRange ? selection.end : null,
     );
     const overlaps = overlapping(selection, promotions);
     const indexError = validateIndexFilter(indexFilter) || validateTargetIndex(targetIndex);
@@ -106,7 +103,7 @@ export default function PromotionPlanner({
         setBusy(true);
         setError(null);
         try {
-            const row = await submitPromotion({
+            const { job } = await submitPromotion({
                 sourcetype,
                 indexFilter,
                 targetIndex,
@@ -114,9 +111,8 @@ export default function PromotionPlanner({
                 earliest: selection.start,
                 latest: selection.end,
             });
-            onSubmitted(row.job_id);
-            if (row.status === 'rejected') setError(`Rejected: ${row.message}`);
-            else onClose();
+            onSubmitted(job.job_id);
+            onClose();
         } catch (e) {
             setError(e.message);
         } finally {

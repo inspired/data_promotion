@@ -4,27 +4,25 @@ const now = Math.floor(Date.now() / 1000);
 const sts = ['splunkd', 'syslog', 'aws:cloudtrail', 'pan:traffic', 'WinEventLog'];
 const host = (i) => `hf-${['fra', 'ams', 'osl', 'iad'][i % 4]}-${String(i).padStart(4, '0')}.corp.example`;
 const N = 1500;
+const toEpoch = (v) => {
+    const t = String(v);
+    if (/^\d+(\.\d+)?$/.test(t)) return Number(t);
+    const m = /^-(\d+)(d|h)/.exec(t);
+    return m ? now - Number(m[1]) * (m[2] === 'd' ? 86400 : 3600) : now;
+};
 
 export const fetchCatalog = async () => sts.flatMap((st, i) => [0, 1, 2].map((d) => ({
     sourcetype: st, day: `2026-11-${19 + d}`, files: String(24 * (40 + i * 30)), bytes: String(2.1e10 * (i + 1)),
     earliest: String(1795046400 + d * 86400), latest: String(1795132800 + d * 86400),
     forwarders: String(300 * (i + 1)), agents: String(300 * (i + 1)), updated_at: String(now - 240),
 })));
-// Every forwarder promotes its own files.
-export const fetchSources = async () => [
-    ...Array.from({ length: N }, (_, i) => ({
-        agent: G(i), guid: G(i), sourcetypes: sts.slice(0, 1 + (i % 5)), days: 3, files: 72,
-        bytes: 1.4e9 + i * 1e6, earliest: 1795046400, latest: 1795305600,
-    })),
-];
-export const fetchAgents = async () => [
-    ...Array.from({ length: N }, (_, i) => ({
-        guid: G(i), hostname: host(i), agent_version: '1.2.0', splunk_version: '10.4.1',
-        backend: 'filesystem', forwarders: 1, files: 72, bytes: 1.4e9 + i * 1e6, sourcetypes: sts.slice(0, 1 + (i % 5)),
-        last_seen: i % 300 === 5 ? now - 7200 : now - (i % 5) * 60,
-    })),
-];
-export const fetchForwarderNames = async () => [];
+// Every forwarder promotes its own files (GET forwarders rows).
+export const fetchForwarders = async () => Array.from({ length: N }, (_, i) => ({
+    guid: G(i), agents: [G(i)], hostname: host(i), label: host(i), sourcetypes: sts.slice(0, 1 + (i % 5)),
+    days: 3, files: 72, bytes: 1.4e9 + i * 1e6, earliest: 1795046400, latest: 1795305600,
+    status: i % 300 === 5 ? 'stale' : 'reporting', last_seen: i % 300 === 5 ? now - 7200 : now - (i % 5) * 60,
+    version: '2.2.0', max_bytes_per_job: i % 50 === 0 ? 107374182400 : 53687091200,
+})).sort((x, y) => x.label.localeCompare(y.label));
 export const fetchFieldSamples = async (st) => Array.from({ length: 40 }, (_, i) => ({
     agent: G(i), events_sampled: 600, sampled_at: now - 300,
     indexes: st === 'splunkd' ? ['_internal', ...(i % 3 ? [] : ['_audit'])] : ['main', ...(i % 4 ? [] : [`${st.split(':')[0]}_archive`])],
@@ -55,9 +53,12 @@ export const fetchTasks = async (jobId) => (jobId.endsWith('99255a')
 })));
 export const fetchThemePreference = async () => null;
 export const cancelJob = async () => ({});
-export const runSearch = async () => [{ index: '_internal', sourcetype: 'splunkd', host: 'splunk1', count: '807600' }, { index: '_internal', sourcetype: 'splunkd', host: 'hf-fra-0004', count: '36826' }];
-export const submitPromotion = async ({ earliest, latest }) => ({ job_id: '20261123-160000-new000', status: 'pending', earliest, latest, message: 'queued' });
-export const fetchAgentCatalog = async (guid) => {
+export const verifyJob = async () => ({ items: [{ index: '_internal', sourcetype: 'splunkd', host: 'splunk1', count: '807600' }, { index: '_internal', sourcetype: 'splunkd', host: 'hf-fra-0004', count: '36826' }], events: 844426 });
+export const submitPromotion = async ({ earliest, latest }) => ({
+    job: { job_id: '20261123-160000-new000', status: 'pending', earliest: toEpoch(earliest), latest: Math.min(toEpoch(latest), now), message: 'waiting for forwarders' },
+    warnings: [],
+});
+export const fetchForwarderCatalog = async (guid) => {
     const i = parseInt(guid.slice(0, 8), 10) || 0;
     return sts.slice(0, 1 + (i % 5)).flatMap((st, k) => [0, 1, 2].filter((d) => d !== k % 3 || k === 0).map((d) => ({
         agent: guid, sourcetype: st, day: `2026-11-${19 + d}`, files: String(24 - k * 3), bytes: String(4.6e8 / (k + 1)),
@@ -68,25 +69,25 @@ export const fetchAgentCatalog = async (guid) => {
 
 // Per-forwarder size estimate, consistent with the mock catalogs above: all forwarders
 // together hold the fetchCatalog bytes per day; one forwarder's view uses its
-// fetchAgentCatalog size. Every 50th forwarder reports a higher limit; older add-ons none.
-const toEpoch = (v) => {
-    const t = String(v);
-    if (/^\d+(\.\d+)?$/.test(t)) return Number(t);
-    const m = /^-(\d+)(d|h)/.exec(t);
-    return m ? now - Number(m[1]) * (m[2] === 'd' ? 86400 : 3600) : now;
-};
-export const fetchSizeEstimate = async (sourcetype, agents, earliest, latest) => {
+// fetchForwarderCatalog size. Every 50th forwarder reports a higher limit; older add-ons none.
+// Same shape as GET estimate.
+export const fetchSizeEstimate = async (sourcetype, forwarders, earliest, latest) => {
     const lo = toEpoch(earliest);
     const hi = Math.min(toEpoch(latest), now);
     const days = Math.max(0, hi - lo) / 86400;
-    const pick = agents.length ? agents : Array.from({ length: N }, (_, i) => G(i));
-    const perDay = agents.length === 1 ? 4.6e8 : (2.1e10 * (Math.max(0, sts.indexOf(sourcetype)) + 1)) / N;
-    return pick.map((g) => {
+    const pick = forwarders.length ? forwarders : Array.from({ length: N }, (_, i) => G(i));
+    const perDay = forwarders.length === 1 ? 4.6e8 : (2.1e10 * (Math.max(0, sts.indexOf(sourcetype)) + 1)) / N;
+    const per = pick.map((g) => {
         const i = parseInt(g.slice(0, 8), 10) || 0;
+        const reported = i % 50 === 0 ? 107374182400 : (i % 3 ? 53687091200 : null);
         return {
-            agent: g, hostname: host(i), bytes: String(Math.round(days * perDay * (0.7 + (i % 7) * 0.1))),
-            max_bytes_per_job: i % 50 === 0 ? '107374182400' : (i % 3 ? '53687091200' : ''),
-            earliest: String(lo), latest: String(hi),
+            guid: g, name: host(i), bytes: Math.round(days * perDay * (0.7 + (i % 7) * 0.1)),
+            limit: reported || 53687091200, limit_reported: !!reported,
         };
-    }).sort((a, b) => b.bytes - a.bytes);
+    }).filter((r) => r.bytes > 0).sort((a, b) => b.bytes - a.bytes);
+    return {
+        earliest: lo, latest: hi, seconds: hi - lo, forwarders: per.length,
+        bytes: per.reduce((t, r) => t + r.bytes, 0), largest: per[0] || null,
+        over_limit: per.filter((r) => r.bytes > r.limit), per_forwarder: per,
+    };
 };

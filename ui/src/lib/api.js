@@ -1,149 +1,108 @@
 /**
- * Splunk access for the Data Promotion page.
- * - KV store collections via REST (jobs list, catalog, cancel).
- * - Searches via @splunk/search-job (submitting through the promote_submit macro, verify).
+ * Splunk access for the Data Promotion page: the app's REST API (/services/data_promotion),
+ * the same one SOAR and scripts use. See docs/api.md.
  */
-import SearchJob from '@splunk/search-job';
 import { createRESTURL } from '@splunk/splunk-utils/url';
-import { getDefaultFetchInit, handleResponse, handleError } from '@splunk/splunk-utils/fetch';
-import { APP, JOBS, CATALOG, SOURCES, FORWARDER_NAMES, TASKS, AGENTS, FIELDS, CATALOG_SEARCH, cancelledStatus, sizeEstimateSearch, submitSearch } from './promotion';
+import { getDefaultFetchInit } from '@splunk/splunk-utils/fetch';
 
-function kvURL(collection, key) {
-    const path = `storage/collections/data/${collection}${key ? `/${encodeURIComponent(key)}` : ''}`;
-    return createRESTURL(path, { app: APP, owner: 'nobody' });
+const enc = encodeURIComponent;
+
+function apiURL(path, params) {
+    const qs = new URLSearchParams();
+    Object.entries(params || {}).forEach(([k, v]) => {
+        if (v === undefined || v === null || v === '') return;
+        if (Array.isArray(v)) v.forEach((x) => qs.append(k, x));
+        else qs.append(k, String(v));
+    });
+    const q = qs.toString();
+    return `${createRESTURL(`data_promotion/${path}`)}${q ? `?${q}` : ''}`;
 }
 
-async function kvGet(collection, params = {}) {
-    const qs = new URLSearchParams({ output_mode: 'json', ...params }).toString();
-    const res = await fetch(`${kvURL(collection)}?${qs}`, getDefaultFetchInit())
-        .then(handleResponse(200))
-        .catch(handleError(`Could not read ${collection}`));
-    return Array.isArray(res) ? res : [];
-}
-
-async function kvGetOne(collection, key) {
-    return fetch(`${kvURL(collection, key)}?output_mode=json`, getDefaultFetchInit())
-        .then(handleResponse(200))
-        .catch(handleError(`Could not read ${collection}/${key}`));
-}
-
-async function kvPut(collection, key, record) {
+/** Call the API; resolves with the JSON body, rejects with the API's error message. */
+async function call(method, path, { params, body } = {}) {
     const init = getDefaultFetchInit();
-    const { _user, ...body } = record; // eslint-disable-line no-unused-vars
-    return fetch(kvURL(collection, key), {
+    const res = await fetch(apiURL(path, params), {
         ...init,
-        method: 'POST',
+        method,
         headers: { ...init.headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    })
-        .then(handleResponse([200, 201]))
-        .catch(handleError(`Could not update ${collection}/${key}`));
+        body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    let data = null;
+    try {
+        data = await res.json();
+    } catch (e) {
+        data = null;
+    }
+    if (!res.ok) {
+        // A 404 without our JSON error: splunkd doesn't know the endpoint yet.
+        const missing = res.status === 404 && !(data && data.error);
+        const msg = missing
+            ? 'The Data Promotion API is not available. Restart Splunk after installing or upgrading the app.'
+            : (data && (data.error || (data.messages && data.messages[0] && data.messages[0].text)))
+                || `${res.status} ${res.statusText}`;
+        const err = new Error(msg);
+        err.status = res.status;
+        err.field = data && data.field;
+        throw err;
+    }
+    return data;
 }
 
-export function fetchJobs(limit = 200) {
-    return kvGet(JOBS, { sort: 'submitted_at:-1', limit: String(limit) });
-}
+const items = (data) => (data && Array.isArray(data.items) ? data.items : []);
+
+export const fetchJobs = (limit = 200) => call('GET', 'jobs', { params: { limit } }).then(items);
+
+/** Available data per sourcetype and UTC day, summed over all forwarders. */
+export const fetchCatalog = () => call('GET', 'catalog').then(items);
+
+/** One forwarder's catalog rows (one per sourcetype and UTC day). */
+export const fetchForwarderCatalog = (guid) => call('GET', 'catalog', { params: { forwarder: guid } }).then(items);
+
+/** Every forwarder: what it holds, status, add-on version and size limit. */
+export const fetchForwarders = () => call('GET', 'forwarders').then(items);
+
+/** Sampled indexes and indexed field names of one sourcetype, one row per forwarder. */
+export const fetchFieldSamples = (sourcetype) => call('GET', 'fields', { params: { sourcetype } }).then(items);
+
+/** Every forwarder's task for one job. */
+export const fetchTasks = (jobId) => call('GET', `jobs/${enc(jobId)}/tasks`).then(items);
+
+/** Pending jobs are cancelled at once; running jobs stop on every forwarder after the current file. */
+export const cancelJob = (jobId) => call('POST', `jobs/${enc(jobId)}/cancel`);
+
+/** Indexed events of a job by index, sourcetype and host: { items, events }. */
+export const verifyJob = (jobId) => call('GET', `jobs/${enc(jobId)}/verify`);
 
 /**
- * Available data per sourcetype and day. Aggregated by a search because the raw
- * collection has one row per agent, sourcetype and day (large with many agents).
+ * Create a job. earliest/latest: epochs or Splunk time modifiers. forwarders: GUIDs, [] for all.
+ * Resolves with { job, estimate, warnings }; rejects with the reason when the job is not valid.
  */
-export function fetchCatalog() {
-    return runSearch(CATALOG_SEARCH, '0', 'now');
-}
+export const submitPromotion = ({ sourcetype, indexFilter, forwarders, targetIndex, earliest, latest }) => call(
+    'POST', 'jobs', {
+        body: {
+            sourcetype,
+            index_filter: indexFilter || '*',
+            forwarders: forwarders || [],
+            target_index: targetIndex || '',
+            earliest: String(earliest),
+            latest: String(latest),
+        },
+    },
+);
 
-/** One agent's catalog rows (one per sourcetype and UTC day). */
-export function fetchAgentCatalog(agentGuid) {
-    return kvGet(CATALOG, {
-        query: JSON.stringify({ agent: agentGuid }),
-        fields: 'agent,sourcetype,day,files,bytes,earliest,latest,forwarders,updated_at',
-        limit: '0',
-    });
-}
-
-/** Per-agent, per-writer summary published by the agents. */
-export function fetchSources() {
-    return kvGet(SOURCES, { fields: 'agent,guid,sourcetypes,days,files,bytes,earliest,latest' });
-}
-
-/** Sampled indexes and indexed field names of one sourcetype, one row per agent. */
-export function fetchFieldSamples(sourcetype) {
-    return kvGet(FIELDS, {
-        query: JSON.stringify({ sourcetype }),
-        fields: 'agent,indexes,indexed_fields,events_sampled,sampled_at',
-        limit: '0',
-    });
-}
-
-/** Registered promotion agents (each agent writes its own row). */
-export function fetchAgents() {
-    return kvGet(AGENTS);
-}
-
-/** Fallback GUID -> hostname from indexer metrics ("Promotion - Forwarder names"). */
-export function fetchForwarderNames() {
-    return kvGet(FORWARDER_NAMES, { fields: 'guid,hostname,last_seen' });
-}
-
-/** Every agent's task for one job. */
-export function fetchTasks(jobId) {
-    return kvGet(TASKS, { query: JSON.stringify({ job_id: jobId }), sort: 'agent_host' });
-}
+/**
+ * Size estimate for a job: { forwarders, bytes, seconds, largest, over_limit, per_forwarder }.
+ * forwarders: GUIDs, [] for all.
+ */
+export const fetchSizeEstimate = (sourcetype, forwarders, earliest, latest) => call('GET', 'estimate', {
+    params: { sourcetype, forwarders: forwarders && forwarders.length ? forwarders.join(',') : '', earliest, latest },
+});
 
 /** The user's Splunk theme preference ("light", "dark", ...), or null if unavailable. */
 export async function fetchThemePreference() {
     const url = createRESTURL('data/user-prefs/general', { app: '-', owner: '-' });
-    const res = await fetch(`${url}?output_mode=json`, getDefaultFetchInit()).then(handleResponse(200));
-    return (res && res.entry && res.entry[0] && res.entry[0].content && res.entry[0].content.theme) || null;
-}
-
-/** Cancel a job: re-read it so we never overwrite progress written by the agent meanwhile. */
-export async function cancelJob(jobKey) {
-    const current = await kvGetOne(JOBS, jobKey);
-    const next = cancelledStatus(current.status);
-    if (!next) throw new Error(`Job is ${current.status}; it can no longer be cancelled.`);
-    return kvPut(JOBS, jobKey, {
-        ...current,
-        status: next,
-        message: 'cancelled by user',
-        finished_at: next === 'cancelled' ? Math.floor(Date.now() / 1000) : current.finished_at,
-    });
-}
-
-/** Run a search and resolve with its result rows. */
-export function runSearch(search, earliest, latest) {
-    return new Promise((resolve, reject) => {
-        const job = SearchJob.create(
-            { search, earliest_time: earliest, latest_time: latest },
-            { app: APP, cache: false }
-        );
-        const sub = job.getResults({ count: 0, output_mode: 'json' }).subscribe({
-            next: (data) => {
-                const fatal = (data.messages || []).find((m) => m.type === 'FATAL' || m.type === 'ERROR');
-                if (fatal) reject(new Error(fatal.text));
-                else resolve(data.results || []);
-                sub.unsubscribe();
-            },
-            error: (err) => reject(err instanceof Error ? err : new Error(String(err && err.message ? err.message : err))),
-        });
-    });
-}
-
-/**
- * Submit a promotion through the promote_submit macro and resolve with its result row
- * (job_id, status, message, earliest, latest). earliest/latest: Splunk time modifiers or epochs.
- */
-export async function submitPromotion({ sourcetype, indexFilter, forwarders, targetIndex, earliest, latest }) {
-    const spl = submitSearch(sourcetype, indexFilter || '*', forwarders, targetIndex);
-    const rows = await runSearch(spl, String(earliest), String(latest));
-    if (!rows[0]) throw new Error('The submit search returned no result.');
-    return rows[0];
-}
-
-/**
- * Estimated bytes each agent would read for a job, with its max_bytes_per_job: one row per
- * agent. earliest/latest: the job's time range (Splunk time modifiers or epochs).
- */
-export function fetchSizeEstimate(sourcetype, agents, earliest, latest) {
-    return runSearch(sizeEstimateSearch(sourcetype, agents), String(earliest), String(latest));
+    const res = await fetch(`${url}?output_mode=json`, getDefaultFetchInit());
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const data = await res.json();
+    return (data && data.entry && data.entry[0] && data.entry[0].content && data.entry[0].content.theme) || null;
 }

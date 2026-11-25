@@ -6,7 +6,7 @@ import Typography from '@splunk/react-ui/Typography';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import styled from 'styled-components';
 import { variables } from '@splunk/themes';
-import { fetchAgentCatalog } from '../lib/api';
+import { fetchForwarderCatalog } from '../lib/api';
 import { formatBytes, formatCount, jobsForForwarder, summarizeCatalog } from '../lib/promotion';
 import { Nowrap, Row, Stack } from './Layout';
 import PromotionPlanner from './PromotionPlanner';
@@ -59,8 +59,8 @@ function Datasets({ datasets, value, onChange }) {
 /**
  * One agent: the datasets (sourcetypes) it holds, each on the promotion timeline, and a
  * promotion of a picked range from this agent only.
- * forwarder: a buildForwarders row. Its data is read from the catalog of the forwarder(s)
- * that hold its files, which is the forwarder itself unless files sit in a shared store.
+ * forwarder: a row of GET forwarders. Its data is the catalog of the forwarder(s) that hold
+ * its files, which is the forwarder itself unless files sit in a shared store.
  */
 export default function AgentView({ forwarder, jobs, onClose, onSubmitted, onOpenJob }) {
     const [rows, setRows] = useState(null);
@@ -69,17 +69,16 @@ export default function AgentView({ forwarder, jobs, onClose, onSubmitted, onOpe
 
     const agentGuids = forwarder.agents && forwarder.agents.length ? forwarder.agents : [forwarder.guid];
     const shared = agentGuids.some((g) => g !== forwarder.guid);
-    const agentKey = agentGuids.join(' ');
 
     useEffect(() => {
         let stop = false;
         setRows(null);
         setError(null);
-        Promise.all(agentKey.split(' ').map((g) => fetchAgentCatalog(g)))
-            .then((lists) => { if (!stop) setRows(lists.flat()); })
+        fetchForwarderCatalog(forwarder.guid)
+            .then((list) => { if (!stop) setRows(list); })
             .catch((e) => { if (!stop) setError(e.message); });
         return () => { stop = true; };
-    }, [agentKey]);
+    }, [forwarder.guid]);
 
     // A shared store's catalog also holds other forwarders' sourcetypes: keep this one's.
     const ownRows = useMemo(() => {

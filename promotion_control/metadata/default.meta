@@ -2,64 +2,63 @@
 access = read : [ * ], write : [ admin ]
 export = none
 
+# KV store: the API (system token), the saved searches (run as nobody) and admins use
+# every collection. Forwarders (role promotion_agent) read jobs and write their own
+# records. People need only the promote_data capability, not collection access.
 [collections/promotion_jobs]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ promotion_agent, admin ], write : [ admin ]
 export = none
 
 [transforms/promotion_jobs]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ promotion_agent, admin ], write : [ admin ]
 export = none
 
 [collections/promotion_catalog]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ promotion_agent, admin ], write : [ promotion_agent, admin ]
 export = none
 
 [transforms/promotion_catalog]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ promotion_agent, admin ], write : [ promotion_agent, admin ]
 export = none
 
 [collections/promotion_sources]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ promotion_agent, admin ], write : [ promotion_agent, admin ]
 export = none
 
 [transforms/promotion_sources]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ promotion_agent, admin ], write : [ promotion_agent, admin ]
 export = none
 
 [collections/promotion_fields]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ promotion_agent, admin ], write : [ promotion_agent, admin ]
 export = none
 
 [transforms/promotion_fields]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ promotion_agent, admin ], write : [ promotion_agent, admin ]
 export = none
 
 [collections/promotion_tasks]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ promotion_agent, admin ], write : [ promotion_agent, admin ]
 export = none
 
 [transforms/promotion_tasks]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ promotion_agent, admin ], write : [ promotion_agent, admin ]
 export = none
 
 [collections/promotion_agents]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ promotion_agent, admin ], write : [ promotion_agent, admin ]
 export = none
 
 [transforms/promotion_agents]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ promotion_agent, admin ], write : [ promotion_agent, admin ]
 export = none
 
 [collections/promotion_forwarder_names]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
+access = read : [ admin ], write : [ admin ]
 export = none
 
 [transforms/promotion_forwarder_names]
-access = read : [ promotion_user, admin ], write : [ promotion_user, admin ]
-export = none
-
-[macros]
-access = read : [ promotion_user, admin ], write : [ admin ]
+access = read : [ admin ], write : [ admin ]
 export = none
 
 [savedsearches]

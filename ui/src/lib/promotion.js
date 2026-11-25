@@ -1,31 +1,14 @@
 /**
- * Pure helpers for the Data Promotion page: validation, SPL builders, status metadata,
+ * Pure helpers for the Data Promotion page: validation, search links, status metadata,
  * and formatting. No Splunk or DOM dependencies, so they are unit-tested directly.
  */
-
-export const APP = 'promotion_control';
-export const JOBS = 'promotion_jobs';
-export const CATALOG = 'promotion_catalog';
-export const SOURCES = 'promotion_sources';
-export const FORWARDER_NAMES = 'promotion_forwarder_names';
-export const TASKS = 'promotion_tasks';
-export const AGENTS = 'promotion_agents';
-export const FIELDS = 'promotion_fields';
-
-/** An agent that has not sent a heartbeat for this long is shown as not reporting. */
-export const AGENT_STALE_SECONDS = 15 * 60;
 
 const num = (v) => {
     const n = typeof v === 'number' ? v : parseFloat(v);
     return Number.isFinite(n) ? n : null;
 };
 
-/** Available data per sourcetype and UTC day, summed over all agents (runs on the SH). */
-export const CATALOG_SEARCH = '| inputlookup promotion_catalog '
-    + '| stats sum(files) AS files sum(bytes) AS bytes min(earliest) AS earliest max(latest) AS latest '
-    + 'sum(forwarders) AS forwarders dc(agent) AS agents max(updated_at) AS updated_at by sourcetype day';
-
-// Values that end up inside SPL macro arguments are restricted to safe characters.
+// Same rules as the API (promotion_api.py), so the form can explain problems as you type.
 const SOURCETYPE_RE = /^[A-Za-z0-9_.:\-]+$/;
 const INDEX_FILTER_RE = /^[A-Za-z0-9_*\-]+$/;
 // Splunk index names: lowercase letters, digits, _ and -, not starting with - (max 80).
@@ -109,77 +92,6 @@ export function isLongRangeToOriginalIndex(seconds, targetIndex) {
     return seconds !== null && seconds > LONG_RANGE_SECONDS && !(targetIndex || '').trim();
 }
 
-// Agent defaults (TA-promotion_agent promotion_agent.conf). Agents before 2.2.0 don't report
-// their limit; they are assumed to use the default.
-export const DEFAULT_MAX_BYTES_PER_JOB = 53687091200;
-export const DEFAULT_FILE_SLACK_SECONDS = 3600;
-
-/**
- * SPL estimating how much each agent would read for a job. Run it with the job's own time
- * range: addinfo resolves it exactly as the promote_submit macro does. Catalog rows are per
- * agent and UTC day; a partly covered day counts in proportion, widened by the agents'
- * file slack, as the agent also reads neighbouring files.
- * agents: agent GUIDs to include; empty means all.
- */
-export function sizeEstimateSearch(sourcetype, agents = []) {
-    const st = String(sourcetype || '').trim();
-    if (validateSourcetype(st)) throw new Error('Invalid sourcetype.');
-    const guids = agents.map(upper);
-    if (guids.some((g) => !isValidGuid(g))) throw new Error('Invalid forwarder GUID.');
-    const slack = DEFAULT_FILE_SLACK_SECONDS;
-    return `| inputlookup promotion_catalog where sourcetype="${st}"`
-        + (guids.length ? ` | where ${guids.map((g) => `agent="${g}"`).join(' OR ')}` : '')
-        + ' | addinfo'
-        + ' | eval lo=floor(tonumber(info_min_time)), hi=tonumber(info_max_time)'
-        + ' | eval hi=if(isnull(hi) OR hi>now(), now(), hi)'
-        + ` | eval slo=lo-${slack}, shi=hi+${slack}, earliest=tonumber(earliest), latest=tonumber(latest)`
-        + ' | where latest > slo AND earliest < shi'
-        + ' | eval part=(min(latest, shi) - max(earliest, slo)) / max(latest - earliest, 1)'
-        + ' | eval bytes=round(tonumber(bytes) * min(1, max(0, part)))'
-        + ' | stats sum(bytes) AS bytes max(lo) AS earliest max(hi) AS latest by agent'
-        + ' | lookup promotion_agents guid AS agent OUTPUT hostname max_bytes_per_job'
-        + ' | sort 0 - bytes'
-        + ' | table agent hostname bytes max_bytes_per_job earliest latest';
-}
-
-/** Agent GUIDs holding the selected forwarders' files ([] = no selection = all agents). */
-export function agentsForSelection(forwarders, selected) {
-    if (!selected || !selected.length) return [];
-    const want = new Set(selected.map(upper));
-    const out = new Set();
-    (forwarders || []).forEach((f) => {
-        if (want.has(upper(f.guid))) (f.agents && f.agents.length ? f.agents : [f.guid]).forEach((a) => out.add(upper(a)));
-    });
-    return [...out].sort();
-}
-
-/**
- * Size estimate rows -> { agents, bytes, largest, over, seconds }.
- * over: agents whose estimate is above their max_bytes_per_job, largest first. Their task
- * fails before reading anything. seconds: the resolved length of the range.
- */
-export function summarizeEstimate(rows) {
-    const list = (rows || []).map((r) => {
-        const reported = num(r.max_bytes_per_job);
-        return {
-            agent: r.agent,
-            name: r.hostname || r.agent,
-            bytes: num(r.bytes) || 0,
-            limit: reported || DEFAULT_MAX_BYTES_PER_JOB,
-            limitReported: !!reported,
-        };
-    }).filter((r) => r.bytes > 0).sort((a, b) => b.bytes - a.bytes);
-    const e = num(rows && rows[0] && rows[0].earliest);
-    const l = num(rows && rows[0] && rows[0].latest);
-    return {
-        agents: list.length,
-        bytes: list.reduce((t, r) => t + r.bytes, 0),
-        largest: list[0] || null,
-        over: list.filter((r) => r.bytes > r.limit),
-        seconds: e !== null && l !== null ? l - e : null,
-    };
-}
-
 export function isValidJobId(id) {
     return typeof id === 'string' && JOB_ID_RE.test(id);
 }
@@ -190,27 +102,6 @@ export function parseForwarders(value) {
     const v = String(value || '').trim();
     if (!v || v === '*') return [];
     return v.split(/\s+/).map((g) => g.toUpperCase());
-}
-
-/**
- * SPL that submits a job through the promote_submit macro (it validates and writes to KV).
- * forwarders: array of writer GUIDs; empty means all forwarders.
- * targetIndex: destination index; empty means each event's original index.
- */
-export function submitSearch(sourcetype, indexFilter, forwarders = [], targetIndex = '') {
-    const st = validateSourcetype(sourcetype);
-    if (st) throw new Error(st);
-    const idx = indexFilter || '*';
-    const ie = validateIndexFilter(idx);
-    if (ie) throw new Error(ie);
-    const guids = parseForwarders(forwarders);
-    const bad = guids.filter((g) => !isValidGuid(g));
-    if (bad.length) throw new Error(`Invalid forwarder GUID: ${bad[0]}`);
-    const fwd = guids.length ? guids.join(' ') : '*';
-    const target = (targetIndex || '').trim();
-    const te = validateTargetIndex(target);
-    if (te) throw new Error(`Destination index: ${te}`);
-    return `| \`promote_submit(${sourcetype}, ${idx}, ${fwd}, ${target || '*'})\``;
 }
 
 /**
@@ -243,12 +134,6 @@ export function canOpenInSearch(job) {
     return job.status === 'incomplete' && (num(job.events_indexed) || 0) > 0;
 }
 
-/** SPL that counts indexed events for one job, broken down by index/sourcetype/host. */
-export function verifySearch(jobId) {
-    if (!isValidJobId(jobId)) throw new Error('Invalid job id');
-    return `| tstats count where (index=* OR index=_*) promote_job="${jobId}" by index sourcetype host | sort 0 - count`;
-}
-
 /**
  * Job status -> status indicator (icon + text, the Design System table pattern).
  * tone: positive / warning / negative / info (work in progress) / neutral (waiting or
@@ -264,7 +149,6 @@ export const STATUS = {
     cancel_requested: { label: 'Cancelling', tone: 'warning', icon: 'stopped', active: true },
     cancelled: { label: 'Cancelled', tone: 'neutral', icon: 'stopped', active: false },
     failed: { label: 'Failed', tone: 'negative', icon: 'error', active: false },
-    rejected: { label: 'Rejected', tone: 'negative', icon: 'error', active: false },
 };
 
 /** An agent's share of a job (promotion_tasks). */
@@ -275,7 +159,7 @@ export const TASK_STATUS = {
     cancelled: { label: 'Cancelled', tone: 'neutral', icon: 'stopped' },
 };
 
-/** Agent heartbeat state (buildForwarders status). */
+/** Forwarder heartbeat state (status in GET forwarders). */
 export const AGENT_STATUS = {
     reporting: { label: 'Reporting', tone: 'positive', icon: 'ok' },
     stale: { label: 'Not reporting', tone: 'warning', icon: 'warning' },
@@ -298,13 +182,6 @@ export function agentStatusMeta(status) {
 
 export function canCancel(job) {
     return job && (job.status === 'pending' || job.status === 'running');
-}
-
-/** New status when a user cancels: pending stops immediately, running stops after the current file. */
-export function cancelledStatus(status) {
-    if (status === 'pending') return 'cancelled';
-    if (status === 'running') return 'cancel_requested';
-    return null;
 }
 
 /**
@@ -415,58 +292,6 @@ export function summarizeCatalog(rows) {
 
 const upper = (g) => String(g || '').toUpperCase();
 const asList = (v) => (Array.isArray(v) ? v : [v].filter(Boolean));
-
-/**
- * One row per forwarder: what it holds (its promotion_sources rows) merged with its own
- * registration (promotion_agents: name, version, heartbeat). Every forwarder promotes its own
- * files, so the server GUID in the dump filenames is the forwarder's own GUID.
- * Names fall back to indexer metrics (promotion_forwarder_names) for forwarders that have
- * not registered. status: 'reporting' | 'stale' (no heartbeat for 15 min) | 'unregistered'.
- * agents: GUIDs of the agents that hold this forwarder's files (normally just its own).
- */
-export function buildForwarders(sources, agents = [], names = [], now = Date.now() / 1000) {
-    const byGuid = {};
-    const row = (guid) => byGuid[guid] || (byGuid[guid] = {
-        guid, agents: [], sourcetypes: [], days: 0, files: 0, bytes: 0, earliest: null, latest: null,
-    });
-    sources.filter((s) => s.guid).forEach((s) => {
-        const r = row(upper(s.guid));
-        if (s.agent && !r.agents.includes(upper(s.agent))) r.agents.push(upper(s.agent));
-        r.sourcetypes = [...new Set([...r.sourcetypes, ...asList(s.sourcetypes)])].sort();
-        r.days = Math.max(r.days, num(s.days) || 0);
-        r.files += num(s.files) || 0;
-        r.bytes += num(s.bytes) || 0;
-        const e = num(s.earliest);
-        const l = num(s.latest);
-        if (e !== null && (r.earliest === null || e < r.earliest)) r.earliest = e;
-        if (l !== null && (r.latest === null || l > r.latest)) r.latest = l;
-    });
-    const agentByGuid = {};
-    agents.filter((a) => a.guid).forEach((a) => {
-        agentByGuid[upper(a.guid)] = a;
-        row(upper(a.guid));
-    });
-    const nameByGuid = {};
-    names.forEach((n) => { if (n.guid) nameByGuid[upper(n.guid)] = n; });
-
-    return Object.values(byGuid)
-        .map((r) => {
-            const a = agentByGuid[r.guid];
-            const lastSeen = a ? num(a.last_seen) : null;
-            const hostname = (a && a.hostname) || (nameByGuid[r.guid] && nameByGuid[r.guid].hostname) || null;
-            let status = 'unregistered';
-            if (a) status = lastSeen !== null && now - lastSeen <= AGENT_STALE_SECONDS ? 'reporting' : 'stale';
-            return {
-                ...r,
-                hostname,
-                label: hostname || r.guid,
-                status,
-                lastSeen,
-                version: (a && a.agent_version) || null,
-            };
-        })
-        .sort((x, y) => x.label.localeCompare(y.label));
-}
 
 /** Jobs that included one forwarder: all-forwarder jobs and jobs that listed its GUID. */
 export function jobsForForwarder(jobs, guid) {
