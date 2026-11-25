@@ -44,7 +44,7 @@ export function ForwarderPicker({ forwarders, values, onChange }) {
             inline={false}
             style={{ width: '100%' }}
             values={values}
-            placeholder={`All agents (${formatCount(forwarders.length)})`}
+            placeholder={`All forwarders (${formatCount(forwarders.length)})`}
             controlledFilter
             onFilterChange={(e, { keyword: k }) => setKeyword(k)}
             onChange={(e, { values: v }) => onChange(v)}
@@ -104,7 +104,7 @@ export function IndexFilterField({ sourcetype, value, onChange }) {
                     <ComboBox.Option
                         key={i.name}
                         value={i.name}
-                        description={sample.agents > 1 ? `${formatCount(i.agents)} of ${formatCount(sample.agents)} agents` : undefined}
+                        description={sample.agents > 1 ? `${formatCount(i.agents)} of ${formatCount(sample.agents)} forwarders` : undefined}
                     />
                 ))}
             </ComboBox>
@@ -207,8 +207,8 @@ export default function NewPromotion({ catalog, forwarders, onSubmitted, onOpenT
     const forwarderHelp = !sourcetype
         ? 'Pick a sourcetype first.'
         : selected.length
-            ? `${formatCount(selected.length)} of ${formatCount(candidates.length)} agents selected.`
-            : `All ${formatCount(candidates.length)} agents that wrote ${sourcetype}.`;
+            ? `${formatCount(selected.length)} of ${formatCount(candidates.length)} forwarders selected.`
+            : `All ${formatCount(candidates.length)} forwarders that wrote ${sourcetype}.`;
 
     return (
         <Card>
@@ -225,7 +225,7 @@ export default function NewPromotion({ catalog, forwarders, onSubmitted, onOpenT
                                 labelPosition="top"
                                 help={summary
                                     ? `${summary.firstDay} to ${summary.lastDay} · ${formatCount(summary.files)} files · ${formatBytes(summary.bytes)}`
-                                    : 'From the catalog published by the promotion agent.'}
+                                    : 'From the catalog the forwarders publish.'}
                             >
                                 <Select
                                     value={sourcetype}
@@ -264,7 +264,7 @@ export default function NewPromotion({ catalog, forwarders, onSubmitted, onOpenT
                     </Row>
                     <Row>
                         <Field $flex="3 1 360px">
-                            <ControlGroup label="Agents" labelPosition="top" help={forwarderHelp}>
+                            <ControlGroup label="Forwarders" labelPosition="top" help={forwarderHelp}>
                                 <ForwarderPicker forwarders={candidates} values={selected} onChange={setSelected} />
                             </ControlGroup>
                         </Field>

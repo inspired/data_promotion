@@ -313,7 +313,7 @@ export default function Timeline({ data, promotions, domain, selection, onChange
                                 height={DATA_H}
                                 opacity={0.35 + 0.55 * (d.files / maxFiles)}
                             >
-                                <title>{`${d.day}: ${formatCount(d.files)} files, ${formatBytes(d.bytes)}, ${formatCount(d.forwarders)} agents`}</title>
+                                <title>{`${d.day}: ${formatCount(d.files)} files, ${formatBytes(d.bytes)}, ${formatCount(d.forwarders)} forwarders`}</title>
                             </DataBar>
                         );
                     })}

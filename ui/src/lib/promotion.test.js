@@ -135,7 +135,7 @@ describe('validation and SPL builders', () => {
             .toBe(`| \`promote_submit(splunkd, *, ${G1} ${G2}, *)\``);
         expect(submitSearch('splunkd', '*', [G1], ' promotion_test ')).toBe(`| \`promote_submit(splunkd, *, ${G1}, promotion_test)\``);
         expect(() => submitSearch('splunkd', '*', [], 'x) | delete')).toThrow(/Destination index/);
-        expect(() => submitSearch('splunkd', '*', ['x) | delete'])).toThrow(/Invalid agent/);
+        expect(() => submitSearch('splunkd', '*', ['x) | delete'])).toThrow(/Invalid forwarder/);
         expect(() => submitSearch('bad st', '*')).toThrow();
         expect(() => submitSearch('splunkd', 'x,y')).toThrow();
     });
@@ -300,9 +300,9 @@ describe('forwarders', () => {
     test('parse and describe', () => {
         expect(parseForwarders('*')).toEqual([]);
         expect(parseForwarders(`${G1.toLowerCase()} ${G2}`)).toEqual([G1, G2]);
-        expect(describeForwarders({ forwarders: '*' })).toBe('All agents');
+        expect(describeForwarders({ forwarders: '*' })).toBe('All forwarders');
         expect(describeForwarders({ forwarders: G1 }, { [G1]: 'splunk1' })).toBe('splunk1');
-        expect(describeForwarders({ forwarders: `${G1} ${G2}` })).toBe('2 agents');
+        expect(describeForwarders({ forwarders: `${G1} ${G2}` })).toBe('2 forwarders');
     });
 
     test('paginate clamps the page', () => {

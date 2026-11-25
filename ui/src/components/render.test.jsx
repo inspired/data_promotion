@@ -111,8 +111,8 @@ test('PartitionsTable renders partitions', async () => {
 test('JobPanel shows details and actions', async () => {
     const { text } = await render(<JobPanel job={{ ...job, status: 'running' }} onClose={() => {}} onChanged={() => {}} />);
     expect(text()).toContain('Events promoted');
-    expect(text()).toContain('2 of 2 agents reported');
-    expect(text()).toContain('Progress per agent');
+    expect(text()).toContain('2 of 2 forwarders reported');
+    expect(text()).toContain('Progress per forwarder');
     expect(text()).toContain('disk full');
     expect(text()).toContain('Cancel job');
     expect(text()).toContain('Promote again');
@@ -141,7 +141,7 @@ test('ForwardersTable renders forwarders', async () => {
     const { text } = await render(<ForwardersTable forwarders={fwd} />);
     expect(text()).toContain('splunk1');
     expect(text()).toContain('5A8D3399-FD7B-41CB-B0A9-23CC0BCE0EF8');
-    expect(text()).toContain('1 agents · 1 not reporting · times in UTC');
+    expect(text()).toContain('1 forwarder · 1 not reporting · times in UTC');
     expect(text()).toContain('Not reporting');
     expect(text()).toContain('1.2.1');
 });
@@ -160,7 +160,7 @@ test('JobsTable paginates', async () => {
 
 test('NewPromotion renders the form', async () => {
     const { text } = await render(<NewPromotion catalog={[{ sourcetype: 'splunkd', days: 1, files: 7, bytes: 1, firstDay: '2026-11-19', lastDay: '2026-11-19' }]} forwarders={fwd} onSubmitted={() => {}} />);
-    expect(text()).toContain('Agents');
+    expect(text()).toContain('Forwarders');
     expect(text()).toContain('Pick a sourcetype first.');
 });
 
@@ -281,7 +281,7 @@ async function plannerWithEstimate(rows) {
 test('PromotionPlanner shows the estimated size of the selection', async () => {
     const { text } = await plannerWithEstimate([['A1', 'hf-osl-0001', 30, 50], ['A2', 'hf-ams-0002', 10, 50]]);
     expect(fetchSizeEstimate).toHaveBeenCalledWith('splunkd', [], 1795046400, 1795132800);
-    expect(text()).toContain('about 40.0 GB from 2 agents, at most 30.0 GB from one agent (hf-osl-0001)');
+    expect(text()).toContain('about 40.0 GB from 2 forwarders, at most 30.0 GB from one forwarder (hf-osl-0001)');
     expect(text()).not.toContain('promote nothing');
 });
 
@@ -289,10 +289,10 @@ test('PromotionPlanner warns about agents over their limit, by name', async () =
     const { text } = await plannerWithEstimate([
         ['A1', 'hf-osl-0001', 72, 50], ['A2', 'hf-ams-0002', 60, null], ['A3', 'hf-fra-0003', 10, 50],
     ]);
-    expect(text()).toContain('2 of 3 agents would read more than their limit and promote nothing');
+    expect(text()).toContain('2 of 3 forwarders would read more than their limit and promote nothing');
     expect(text()).toContain('hf-osl-0001 (72.0 GB, limit 50.0 GB)');
     expect(text()).toContain('hf-ams-0002 (60.0 GB, limit 50.0 GB by default)');
-    expect(text()).toContain('The other agents still promote their share.');
+    expect(text()).toContain('The other forwarders still promote their share.');
 });
 
 test('IndexFilterField suggests the sampled indexes of the sourcetype', async () => {
@@ -321,7 +321,7 @@ test('AgentView lists the agent datasets and promotes from that agent only', asy
     expect(fetchAgentCatalog).toHaveBeenCalledWith(fwd[0].guid);
     expect(text()).toContain('2 datasets');
     expect(text()).toContain('splunkd on splunk1');
-    expect(text()).not.toContain('Agents'); // no agent picker: fixed to this agent
+    expect(text()).not.toContain('Forwarders'); // no forwarder picker: fixed to this forwarder
     const syslogRow = [...document.querySelectorAll('tr')].find((tr) => tr.textContent.startsWith('syslog'));
     await act(async () => syslogRow.click());
     expect(text()).toContain('syslog on splunk1');

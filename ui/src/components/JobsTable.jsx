@@ -44,7 +44,7 @@ export default function JobsTable({ jobs, nameByGuid, onSelect, selectedKey }) {
                     <Table.HeadCell>Status</Table.HeadCell>
                     <Table.HeadCell>Job</Table.HeadCell>
                     <Table.HeadCell>Sourcetype</Table.HeadCell>
-                    <Table.HeadCell>Agents</Table.HeadCell>
+                    <Table.HeadCell>Forwarders</Table.HeadCell>
                     <Table.HeadCell>Time range (UTC)</Table.HeadCell>
                     <Table.HeadCell>Progress</Table.HeadCell>
                     <Table.HeadCell>Submitted (UTC)</Table.HeadCell>

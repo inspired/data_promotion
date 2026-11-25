@@ -116,7 +116,7 @@ const partitionColumns = (onPick) => [
         label: 'Day (UTC)',
         render: (r) => <Link to="#" onClick={(e) => { e.preventDefault(); onPick(r.sourcetype, r.day); }}>{r.day}</Link>,
     },
-    { key: 'forwarders', label: 'Agents', align: 'right', render: (r) => formatCount(r.forwarders) },
+    { key: 'forwarders', label: 'Forwarders', align: 'right', render: (r) => formatCount(r.forwarders) },
     { key: 'files', label: 'Files', align: 'right', render: (r) => formatCount(r.files) },
     { key: 'bytes', label: 'Size', align: 'right', render: (r) => formatBytes(r.bytes) },
     { key: 'earliest', label: 'First hour', render: (r) => formatEpochShort(r.earliest) },
@@ -128,7 +128,7 @@ const mono = (v) => <Typography as="span" variant="monoSmallBody">{v}</Typograph
 const forwarderColumns = (onOpen) => [
     {
         key: 'hostname',
-        label: 'Agent',
+        label: 'Forwarder',
         render: (r) => (
             <Link to="#" onClick={(e) => { e.preventDefault(); onOpen(r); }}>
                 {r.hostname || 'Name unknown'}
@@ -179,7 +179,7 @@ export function PartitionsTable({ rows, onPick }) {
             rowKey={(r) => r._key || `${r.sourcetype}|${r.day}`}
             filterKeys={['sourcetype', 'day']}
             filterPlaceholder="Filter by sourcetype or day"
-            emptyText="No agent has published its catalog yet."
+            emptyText="No forwarder has published its catalog yet."
             summary={(n) => `${formatCount(n)} partitions · times in UTC · catalog updated ${ago(updated)} · click a sourcetype or day to promote it on a timeline`}
             initialSort={{ key: 'day', dir: 'desc' }}
         />
@@ -196,10 +196,10 @@ export function ForwardersTable({ forwarders, onOpen }) {
             rowKey={(r) => r.guid}
             filterKeys={['hostname', 'guid', 'version']}
             filterPlaceholder="Filter by name, GUID or version"
-            emptyText="No agent has registered yet. Install TA-promotion_agent on the Heavy Forwarders."
+            emptyText="No forwarder has registered yet. Install TA-promotion_agent on the Heavy Forwarders."
             summary={(n) => {
                 const stale = forwarders.filter((f) => f.status !== 'reporting').length;
-                return `${formatCount(n)} agents${stale ? ` · ${formatCount(stale)} not reporting` : ''} · times in UTC · click an agent to see its data and promote from it`;
+                return `${formatCount(n)} forwarder${n === 1 ? '' : 's'}${stale ? ` · ${formatCount(stale)} not reporting` : ''} · times in UTC · click a forwarder to see its data and promote from it`;
             }}
             initialSort={{ key: 'hostname', dir: 'asc' }}
         />

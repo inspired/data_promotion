@@ -71,21 +71,21 @@ function AgentTasks({ job }) {
     }, [job.job_id, active]);
 
     const expected = num(job.agents_expected);
-    const summary = tasks === null ? null : `${formatCount(tasks.length)} of ${expected === null ? '?' : formatCount(expected)} agents reported`;
+    const summary = tasks === null ? null : `${formatCount(tasks.length)} of ${expected === null ? '?' : formatCount(expected)} forwarders reported`;
     const { current, totalPages, rows } = paginate(tasks || [], page, TASK_PAGE_SIZE);
     return (
         <Stack $gap="small">
             <Row $align="center">
-                <Heading level={3}>Progress per agent</Heading>
+                <Heading level={3}>Progress per forwarder</Heading>
                 {summary && <Typography as="span" color="muted">{summary}</Typography>}
                 {tasks === null && !error && <WaitSpinner />}
             </Row>
             {error && <Message type="error">{error}</Message>}
-            {tasks && tasks.length === 0 && <P>No agent has picked up this job yet.</P>}
+            {tasks && tasks.length === 0 && <P>No forwarder has picked up this job yet.</P>}
             {rows.length > 0 && (
                 <Table>
                     <Table.Head>
-                        <Table.HeadCell>Agent</Table.HeadCell>
+                        <Table.HeadCell>Forwarder</Table.HeadCell>
                         <Table.HeadCell>Status</Table.HeadCell>
                         <Table.HeadCell align="right">Files</Table.HeadCell>
                         <Table.HeadCell align="right">Events</Table.HeadCell>
@@ -182,7 +182,7 @@ function Verify({ job }) {
 
 function ForwarderList({ job, nameByGuid }) {
     const guids = parseForwarders(job.forwarders);
-    if (!guids.length) return 'All agents';
+    if (!guids.length) return 'All forwarders';
     const shown = guids.slice(0, MAX_LISTED_FORWARDERS);
     return (
         <Stack $gap="small">
@@ -241,7 +241,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
     const runtime = num(job.finished_at) && num(job.started_at) ? num(job.finished_at) - num(job.started_at) : null;
     const toIndexed = num(job.completed_at) && num(job.finished_at) ? num(job.completed_at) - num(job.finished_at) : null;
     const forwarderText = describeForwarders(job, nameByGuid);
-    const fromText = forwarderText === 'All agents' ? 'all agents' : forwarderText;
+    const fromText = forwarderText === 'All forwarders' ? 'all forwarders' : forwarderText;
     const warn = ['failed', 'rejected', 'incomplete'].includes(job.status);
 
     return (
@@ -265,7 +265,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                 <DefinitionList termWidth="170px">
                     <Term>Sourcetype</Term>
                     <Description>{job.sourcetype}</Description>
-                    <Term>Agents</Term>
+                    <Term>Forwarders</Term>
                     <Description><ForwarderList job={job} nameByGuid={nameByGuid} /></Description>
                     <Term>Index filter</Term>
                     <Description>{job.index_filter || '*'}</Description>
@@ -277,7 +277,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                     <Description>{formatCount(job.files_done)} of {formatCount(job.files_total)}</Description>
                     <Term>Read</Term>
                     <Description>{formatBytes(job.bytes_read)}</Description>
-                    <Term>Agents done</Term>
+                    <Term>Forwarders done</Term>
                     <Description>
                         {formatCount(job.agents_reported || 0)} of {formatCount(job.agents_expected)} reported
                         {num(job.agents_failed) ? `, ${formatCount(job.agents_failed)} failed` : ''}
@@ -323,7 +323,7 @@ export default function JobPanel({ job, nameByGuid = {}, onClose, onChanged }) {
                         <P>
                             {job.status === 'pending'
                                 ? 'The job has not started and will not run.'
-                                : 'Every agent stops after its current file. Events already handed over will still be indexed.'}
+                                : 'Every forwarder stops after its current file. Events already handed over will still be indexed.'}
                         </P>
                     ) : (
                         <P>

@@ -125,7 +125,7 @@ export function sizeEstimateSearch(sourcetype, agents = []) {
     const st = String(sourcetype || '').trim();
     if (validateSourcetype(st)) throw new Error('Invalid sourcetype.');
     const guids = agents.map(upper);
-    if (guids.some((g) => !isValidGuid(g))) throw new Error('Invalid agent GUID.');
+    if (guids.some((g) => !isValidGuid(g))) throw new Error('Invalid forwarder GUID.');
     const slack = DEFAULT_FILE_SLACK_SECONDS;
     return `| inputlookup promotion_catalog where sourcetype="${st}"`
         + (guids.length ? ` | where ${guids.map((g) => `agent="${g}"`).join(' OR ')}` : '')
@@ -205,7 +205,7 @@ export function submitSearch(sourcetype, indexFilter, forwarders = [], targetInd
     if (ie) throw new Error(ie);
     const guids = parseForwarders(forwarders);
     const bad = guids.filter((g) => !isValidGuid(g));
-    if (bad.length) throw new Error(`Invalid agent GUID: ${bad[0]}`);
+    if (bad.length) throw new Error(`Invalid forwarder GUID: ${bad[0]}`);
     const fwd = guids.length ? guids.join(' ') : '*';
     const target = (targetIndex || '').trim();
     const te = validateTargetIndex(target);
@@ -316,7 +316,7 @@ export function progressOf(job) {
     const s = job.status;
     const filesTotal = num(job.files_total);
     const staged = num(job.events_staged);
-    if (s === 'pending') return { percentage: 0, label: 'Waiting for agents' };
+    if (s === 'pending') return { percentage: 0, label: 'Waiting for forwarders' };
     if (s === 'running' || s === 'cancel_requested') {
         const done = num(job.files_done) || 0;
         const pct = filesTotal ? Math.round((done / filesTotal) * 100) : 0;
@@ -511,9 +511,9 @@ export function resolveColorScheme(theme, prefersDark = () => (
 /** Short description of a job's forwarder selection. */
 export function describeForwarders(job, nameByGuid = {}) {
     const guids = parseForwarders(job && job.forwarders);
-    if (!guids.length) return 'All agents';
+    if (!guids.length) return 'All forwarders';
     if (guids.length === 1) return nameByGuid[guids[0]] || guids[0];
-    return `${guids.length} agents`;
+    return `${guids.length} forwarders`;
 }
 
 /**

@@ -47,24 +47,24 @@ export default function SizeEstimate({ state }) {
     }
     if (!summary) return <Typography as="p" variant="body">Estimating size…</Typography>;
     if (!summary.agents) {
-        return <Typography as="p" variant="body">Estimated size: no agent holds data in this range.</Typography>;
+        return <Typography as="p" variant="body">Estimated size: no forwarder holds data in this range.</Typography>;
     }
     const { largest, over } = summary;
     return (
         <>
             <Typography as="p" variant="body" data-size-estimate>
-                {`Estimated size: about ${formatBytes(summary.bytes)} from ${plural(summary.agents, 'agent')}`}
-                {summary.agents > 1 ? `, at most ${formatBytes(largest.bytes)} from one agent (${largest.name}).` : '.'}
+                {`Estimated size: about ${formatBytes(summary.bytes)} from ${plural(summary.agents, 'forwarder')}`}
+                {summary.agents > 1 ? `, at most ${formatBytes(largest.bytes)} from one forwarder (${largest.name}).` : '.'}
                 {state.status === 'loading' ? ' Updating…' : ''}
             </Typography>
             {over.length > 0 && (
                 <Message type="warning">
-                    {`${over.length === summary.agents ? (over.length === 1 ? 'The agent' : `All ${plural(over.length, 'agent')}`) : `${formatCount(over.length)} of ${plural(summary.agents, 'agent')}`} `}
+                    {`${over.length === summary.agents ? (over.length === 1 ? 'The forwarder' : `All ${plural(over.length, 'forwarder')}`) : `${formatCount(over.length)} of ${plural(summary.agents, 'forwarder')}`} `}
                     {`would read more than ${over.length === 1 ? 'its' : 'their'} limit and promote nothing: `}
                     {over.slice(0, NAMED).map((r) => `${r.name} (${formatBytes(r.bytes)}, limit ${formatBytes(r.limit)}${r.limitReported ? '' : ' by default'})`).join('; ')}
                     {over.length > NAMED ? `; +${formatCount(over.length - NAMED)} more` : ''}
-                    {over.length < summary.agents ? '. The other agents still promote their share.' : '.'}
-                    {' Pick a shorter range and promote the rest as separate jobs, or ask an admin to raise max_bytes_per_job on those agents.'}
+                    {over.length < summary.agents ? '. The other forwarders still promote their share.' : '.'}
+                    {' Pick a shorter range and promote the rest as separate jobs, or ask an admin to raise max_bytes_per_job on those forwarders.'}
                 </Message>
             )}
         </>

@@ -103,7 +103,7 @@ export default function AgentView({ forwarder, jobs, onClose, onSubmitted, onOpe
             forwarders={[forwarder]}
             agent={forwarder}
             title={forwarder.label}
-            subtitle="Pick a dataset, then a time range on the timeline. Times are UTC and snap to whole hours. The promotion runs on this agent only."
+            subtitle="Pick a dataset, then a time range on the timeline. Times are UTC and snap to whole hours. The promotion runs on this forwarder only."
             onClose={onClose}
             onSubmitted={onSubmitted}
             onOpenJob={onOpenJob}
@@ -112,7 +112,7 @@ export default function AgentView({ forwarder, jobs, onClose, onSubmitted, onOpe
                 <Row $align="center">
                     <AgentStatus status={forwarder.status} />
                     <Typography as="span" variant="monoSmallBody" color="muted">{forwarder.guid}</Typography>
-                    {forwarder.version && <Typography as="span" color="muted">{`agent ${forwarder.version}`}</Typography>}
+                    {forwarder.version && <Typography as="span" color="muted">{`add-on ${forwarder.version}`}</Typography>}
                     {rows && (
                         <Typography as="span" color="muted">
                             {`${formatCount(datasets.length)} dataset${datasets.length === 1 ? '' : 's'} · ${formatCount(forwarder.files)} files · ${formatBytes(forwarder.bytes)}`}
@@ -120,20 +120,20 @@ export default function AgentView({ forwarder, jobs, onClose, onSubmitted, onOpe
                     )}
                 </Row>
                 {forwarder.status === 'stale' && (
-                    <Message type="warning">This agent has not reported for 15 minutes. A promotion waits up to 30 minutes for it.</Message>
+                    <Message type="warning">This forwarder has not reported for 15 minutes. A promotion waits up to 30 minutes for it.</Message>
                 )}
                 {forwarder.status === 'unregistered' && (
-                    <Message type="warning">No agent has registered with this GUID, so a promotion may not be picked up.</Message>
+                    <Message type="warning">This forwarder has not registered, so a promotion may not be picked up.</Message>
                 )}
                 {shared && (
                     <Message type="info">
-                        This forwarder&apos;s files are held by another agent (a shared store). Day totals below include every
+                        This forwarder&apos;s files are held by another forwarder (a shared store). Day totals below include every
                         forwarder in that store; the promotion still selects only this forwarder&apos;s files.
                     </Message>
                 )}
                 {error && <Message type="error">{error}</Message>}
                 {!rows && !error && <WaitSpinner size="medium" />}
-                {rows && datasets.length === 0 && <P>This agent has not published any data yet.</P>}
+                {rows && datasets.length === 0 && <P>This forwarder has not published any data yet.</P>}
                 {datasets.length > 0 && <Datasets datasets={datasets} value={sourcetype} onChange={setSourcetype} />}
             </Stack>
         </PromotionPlanner>

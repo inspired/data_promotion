@@ -108,8 +108,8 @@ export default function DataPromotion() {
             <Stack $gap="small">
                 <Heading level={1}>Data Promotion</Heading>
                 <P>
-                    Promote Ingest Actions output by sourcetype, time range and agent. Each agent (TA-promotion_agent on a Heavy Forwarder) promotes
-                    its own files. Promoted events carry the indexed field promote_job; add NOT promote_job=* to
+                    Promote Ingest Actions output by sourcetype, time range and forwarder. Each forwarder promotes its own files
+                    through the TA-promotion_agent add-on. Promoted events carry the indexed field promote_job; add NOT promote_job=* to
                     a search to exclude them.
                 </P>
             </Stack>
@@ -117,7 +117,7 @@ export default function DataPromotion() {
             {error && <Message type="error" onRequestRemove={() => setError(null)}>{error}</Message>}
             {staleForwarders > 0 && (
                 <Message type="warning">
-                    {formatCount(staleForwarders)} of {formatCount(forwarders.length)} agents have not reported for
+                    {formatCount(staleForwarders)} of {formatCount(forwarders.length)} forwarders have not reported for
                     15 minutes. Jobs that need their data wait up to 30 minutes, then finish as incomplete.
                 </Message>
             )}
@@ -140,7 +140,7 @@ export default function DataPromotion() {
                 <TabLayout.Panel label={`Available data (${formatCount(catalog.length)} sourcetypes)`} panelId="catalog">
                     <PartitionsTable rows={catalogRows} onPick={openPlanner} />
                 </TabLayout.Panel>
-                <TabLayout.Panel label={`Agents (${formatCount(forwarders.length)})`} panelId="forwarders">
+                <TabLayout.Panel label={`Forwarders (${formatCount(forwarders.length)})`} panelId="forwarders">
                     <ForwardersTable forwarders={forwarders} onOpen={openAgent} />
                 </TabLayout.Panel>
             </TabLayout>
