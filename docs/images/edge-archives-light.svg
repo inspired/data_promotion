@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1220" height="430" viewBox="0 0 1220 430" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+<title id="t">Data Promotion: edge archives at thousands of sites</title>
+<desc id="d">Central Splunk holds the Search Head with the Data Promotion page, its KV store and the indexers. At each of thousands of remote sites a Heavy Forwarder writes a full copy of its data to an edge archive with Ingest Actions. Through the TA-promotion_agent add-on every forwarder reports to the KV store and, only when a job asks for it, sends the selected events from its own archive to the indexers.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#F1F4F9"/></linearGradient>
+<pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.2" fill="#E1E6EE"/></pattern>
+<radialGradient id="glow" cx="0.82" cy="0.62" r="0.5"><stop offset="0" stop-color="#0B6FA4" stop-opacity="0.18"/><stop offset="1" stop-color="#0B6FA4" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1220" height="430" rx="18" fill="url(#bg)"/>
+<rect width="1220" height="430" rx="18" fill="url(#dots)"/>
+<rect width="1220" height="430" rx="18" fill="url(#glow)"/>
+<rect x="0.5" y="0.5" width="1219" height="429" rx="18" fill="none" stroke="#D5DBE5"/>
+<text x="40" y="44" font-size="12" font-weight="700" fill="#4B5565" letter-spacing="1.5">CENTRAL SPLUNK</text>
+<g transform="translate(40,56)"><rect width="360" height="64" rx="12" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="12" y="12" width="5" height="40" rx="2.5" fill="#0B6FA4"/><text x="28" y="30" font-size="15" font-weight="700" fill="#0F172A">Search Head</text><text x="28" y="50" font-size="12.5" fill="#4B5565">Data Promotion page · <tspan font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">promotion_control</tspan></text></g>
+<g transform="translate(430,56)"><rect width="360" height="64" rx="12" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="12" y="12" width="5" height="40" rx="2.5" fill="#0F8C80"/><text x="28" y="30" font-size="15" font-weight="700" fill="#0F172A">KV store</text><text x="28" y="50" font-size="12.5" fill="#4B5565">jobs, catalog, forwarders, tasks</text></g>
+<g transform="translate(820,56)"><rect width="360" height="64" rx="12" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="12" y="12" width="5" height="40" rx="2.5" fill="#2E7D32"/><text x="28" y="30" font-size="15" font-weight="700" fill="#0F172A">Indexers</text><text x="28" y="50" font-size="12.5" fill="#4B5565">promoted events carry <tspan font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">promote_job=&lt;id&gt;</tspan></text></g>
+<path d="M400,88 L428,88" fill="none" stroke="#9AA3B2" stroke-width="2" opacity="1"/>
+<path d="M421,83 L429,88 L421,93" fill="none" stroke="#9AA3B2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="1"/>
+<text x="40" y="186" font-size="12" font-weight="700" fill="#4B5565" letter-spacing="1.5">REMOTE SITES</text>
+<rect x="40" y="198" width="750" height="108" rx="16" fill="#FFFFFF" fill-opacity="0.55" stroke="#D5DBE5" stroke-dasharray="5 5"/>
+<text x="60" y="217" font-size="11.5" font-weight="600" fill="#4B5565">one site</text>
+<g transform="translate(60,226)"><rect width="330" height="64" rx="12" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="12" y="12" width="5" height="40" rx="2.5" fill="#7A4FC9"/><text x="28" y="30" font-size="15" font-weight="700" fill="#0F172A">Heavy Forwarder</text><text x="28" y="50" font-size="12.5" fill="#4B5565">Ingest Actions + <tspan font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">TA-promotion_agent</tspan></text></g>
+<g transform="translate(440,226)"><rect width="330" height="64" rx="12" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="12" y="12" width="5" height="40" rx="2.5" fill="#C46A00"/><text x="28" y="30" font-size="15" font-weight="700" fill="#0F172A">Edge archive</text><text x="28" y="50" font-size="12.5" fill="#4B5565">hourly files on local disk, NFS or S3</text></g>
+<path d="M390,248 L438,248" fill="none" stroke="#9AA3B2" stroke-width="2" opacity="1"/>
+<path d="M431,243 L439,248 L431,253" fill="none" stroke="#9AA3B2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="1"/>
+<path d="M440,268 L392,268" fill="none" stroke="#2E7D32" stroke-width="2" opacity="1"/>
+<path d="M399,263 L391,268 L399,273" fill="none" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="1"/>
+<g transform="translate(820,204)" opacity="1.00"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/><circle cx="37" cy="8" r="2.6" fill="#2E7D32"/></g>
+<g transform="translate(872,204)" opacity="0.89"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(924,204)" opacity="0.78"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(976,204)" opacity="0.67"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(1028,204)" opacity="0.56"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/><circle cx="37" cy="8" r="2.6" fill="#2E7D32"/></g>
+<g transform="translate(1080,204)" opacity="0.45"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(1132,204)" opacity="0.34"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(820,228)" opacity="0.94"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(872,228)" opacity="0.83"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(924,228)" opacity="0.72"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/><circle cx="37" cy="8" r="2.6" fill="#2E7D32"/></g>
+<g transform="translate(976,228)" opacity="0.61"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(1028,228)" opacity="0.50"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(1080,228)" opacity="0.39"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/><circle cx="37" cy="8" r="2.6" fill="#2E7D32"/></g>
+<g transform="translate(1132,228)" opacity="0.28"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(820,252)" opacity="0.88"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/><circle cx="37" cy="8" r="2.6" fill="#2E7D32"/></g>
+<g transform="translate(872,252)" opacity="0.77"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(924,252)" opacity="0.66"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(976,252)" opacity="0.55"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/><circle cx="37" cy="8" r="2.6" fill="#2E7D32"/></g>
+<g transform="translate(1028,252)" opacity="0.44"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(1080,252)" opacity="0.33"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(1132,252)" opacity="0.25"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(820,276)" opacity="0.82"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(872,276)" opacity="0.71"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/><circle cx="37" cy="8" r="2.6" fill="#2E7D32"/></g>
+<g transform="translate(924,276)" opacity="0.60"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(976,276)" opacity="0.49"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(1028,276)" opacity="0.38"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(1080,276)" opacity="0.27"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/></g>
+<g transform="translate(1132,276)" opacity="0.25"><rect width="44" height="16" rx="4" fill="#FFFFFF" stroke="#D5DBE5"/><rect x="4" y="4" width="3" height="8" rx="1.5" fill="#7A4FC9"/><rect x="11" y="6" width="20" height="4" rx="2" fill="#E1E6EE"/><circle cx="37" cy="8" r="2.6" fill="#2E7D32"/></g>
+<text x="820" y="316" font-size="12.5" fill="#4B5565"><tspan font-weight="700" fill="#0F172A">× thousands of sites.</tspan> Each forwarder promotes only</text>
+<text x="820" y="334" font-size="12.5" fill="#4B5565">from its own archive; <tspan fill="#2E7D32">●</tspan> promoting now.</text>
+<path d="M190,226 C190,170 560,176 560,130" fill="none" stroke="#4B5565" stroke-width="2" stroke-dasharray="5 5" opacity="1"/>
+<path d="M555,130 L560,122 L565,130" fill="none" stroke="#4B5565" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="1"/>
+<path d="M300,226 C300,160 870,180 870,130" fill="none" stroke="#2E7D32" stroke-width="2" opacity="1"/>
+<path d="M865,130 L870,122 L875,130" fill="none" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="1"/>
+<path d="M950,202 L950,128" fill="none" stroke="#2E7D32" stroke-width="2" opacity="0.35"/>
+<path d="M945,130 L950,122 L955,130" fill="none" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
+<path d="M996,202 L996,128" fill="none" stroke="#2E7D32" stroke-width="2" opacity="0.35"/>
+<path d="M991,130 L996,122 L1001,130" fill="none" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
+<path d="M1042,202 L1042,128" fill="none" stroke="#2E7D32" stroke-width="2" opacity="0.35"/>
+<path d="M1037,130 L1042,122 L1047,130" fill="none" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
+<path d="M1088,202 L1088,128" fill="none" stroke="#2E7D32" stroke-width="2" opacity="0.35"/>
+<path d="M1083,130 L1088,122 L1093,130" fill="none" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
+<path d="M1134,202 L1134,128" fill="none" stroke="#2E7D32" stroke-width="2" opacity="0.35"/>
+<path d="M1129,130 L1134,122 L1139,130" fill="none" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
+<path d="M40,386 L80,386" fill="none" stroke="#4B5565" stroke-width="2" stroke-dasharray="5 5" opacity="1"/>
+<text x="92" y="390" font-size="12.5" fill="#4B5565">catalog, heartbeat and job pick-up, every 30 s (REST to the KV store)</text>
+<path d="M640,386 L676,386" fill="none" stroke="#2E7D32" stroke-width="2" opacity="1"/>
+<path d="M672,381 L680,386 L672,391" fill="none" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="1"/>
+<text x="692" y="390" font-size="12.5" fill="#4B5565">promoted events, only when a job asks for them</text>
+<text x="692" y="414" font-size="12.5" fill="#4B5565">(through the forwarder's normal outputs)</text>
+<path d="M40,410 L76,410" fill="none" stroke="#9AA3B2" stroke-width="2" opacity="1"/>
+<path d="M72,405 L80,410 L72,415" fill="none" stroke="#9AA3B2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="1"/>
+<text x="92" y="414" font-size="12.5" fill="#4B5565">Ingest Actions writes a full copy; Search Head writes jobs</text>
+</svg>

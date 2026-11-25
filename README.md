@@ -22,7 +22,10 @@
 **Data Promotion** makes that copy usable. Each copy is an **edge archive**, kept at the site next to the forwarder that wrote it. A small add-on on that forwarder tells the Search Head what the archive holds. When you need it, pick a **sourcetype, a time range and the forwarders**, and press **Promote**. Each forwarder sends exactly those events from its own archive into Splunk, tagged so you can always tell them apart.
 
 <p align="center">
-  <img src="docs/edge-archives.svg" alt="Remote sites each hold an edge archive (Ingest Actions output on local disk, a share or S3). The forwarder that wrote each archive reports what it holds to the Search Head and, on request, sends the selected events to the indexers." width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/edge-archives-dark.svg">
+    <img alt="Central Splunk: the Search Head with the Data Promotion page, its KV store and the indexers. At each of thousands of remote sites, a Heavy Forwarder writes a full copy to its edge archive; it reports to the KV store and, only when a job asks, sends the selected events from its own archive to the indexers." src="docs/images/edge-archives-light.svg" width="100%">
+  </picture>
 </p>
 
 ## What it does
