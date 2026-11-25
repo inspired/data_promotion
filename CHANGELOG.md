@@ -8,6 +8,8 @@ Each release lists the version of the Search Head app and of the agent add-on. D
 
 ### Changes
 - **Warning for long ranges.** When a range is longer than three days and no destination index is set, the page warns that the old events would share buckets with live data in their original index. Those buckets then span weeks, so searches get slower and data is kept longer. Shown both in **New promotion** and on the timeline.
+- **Estimated size before you promote.** The form and the timeline show about how much the agents will read for the selected range, and the most any one agent will read. The estimate comes from the catalog: days that are only partly selected count in proportion.
+- **Warning before a job exceeds an agent's limit.** Agents now report their `max_bytes_per_job` with their heartbeat. If an agent would read more than that, the page names it before you submit. Agents before 2.2.0 are assumed to use the 50 GiB default.
 
 ### Fixes
 - **Long promotions no longer fill the forwarder's disk.** Before, the agent checked free space once, against the size of the (often compressed) archive files, and then staged uncompressed events as fast as it could read them. Now it stays at most `max_staged_bytes` (2 GiB) ahead of the `stash_hec` input: before each file it waits until the forwarder has sent enough of what is already staged. Free space is checked before every file and every 64 MiB written. A task whose staged data isn't read for `staging_stall_seconds` (30 min) fails with a message that points at the `stash_hec` input.

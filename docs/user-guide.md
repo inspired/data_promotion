@@ -23,7 +23,8 @@ To promote data you need the `promotion_user` role. Ask your Splunk admin if you
    - **Index filter**: only events whose original index matches, for example `os_*`. The list suggests the indexes the agents have seen for that sourcetype.
    - **Destination index**: send every event to this index instead of its original one. The index must already exist on the indexers.
      For ranges longer than three days, the page suggests one. Old events sent back to an index that also takes live data make its buckets span weeks, which slows searches there.
-5. Press **Promote**.
+5. Check the **estimated size** below the form: about how much the agents will read, and the most any one agent will read. If an agent would read more than its limit, a warning names it. That agent fails the job without promoting anything, while the others still promote their share. Pick a shorter range and promote the rest as separate jobs, or ask your admin to raise the limit.
+6. Press **Promote**.
 
 Each agent that holds matching data reads its own files, keeps only the events inside your range, and sends them to Splunk. You can follow the job on the **Jobs** tab.
 
@@ -41,6 +42,8 @@ To select a range:
 - **Type** the start and end (`YYYY-MM-DD HH:MM`, UTC). Times snap to whole hours.
 
 To move around: use the zoom buttons, **Ctrl/⌘ + scroll** (or pinch) to zoom, and horizontal scroll to pan. Arrow keys move the selection; **Shift + arrow** resizes it.
+
+The estimated size and the size-limit warning are shown here too.
 
 If the range overlaps earlier promotions, a warning lists them: those events would be indexed again.
 

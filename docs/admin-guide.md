@@ -36,7 +36,7 @@ The agent tells the Search Head what its edge archive holds, but never sends eve
 
 - **Catalog**: files, bytes and time span per sourcetype and UTC day. Refreshed every 15 minutes.
 - **Field sample**: from the first events of the newest files per sourcetype, the indexes, hosts, sources and indexed field *names* seen there. The page uses them to suggest index filters. Field values and event text are never sent.
-- **Heartbeat**: hostname, versions, backend and totals. Every 5 minutes.
+- **Heartbeat**: hostname, versions, backend, totals and `max_bytes_per_job`. Every 5 minutes.
 
 ### A promotion, step by step
 
@@ -158,7 +158,7 @@ All settings, with defaults and explanations, are in [`TA-promotion_agent/defaul
 | `fs_root` | | Root of the Ingest Actions file system destination. |
 | `s3_uri` | | `s3://bucket/prefix` for an edge archive in S3. |
 | `aws_cli` | `/usr/local/bin/aws` | Path to the AWS CLI. |
-| `max_bytes_per_job` | 50 GiB | Most archive data (as stored, often compressed) an agent reads for one job. Over it, the task fails before reading anything. |
+| `max_bytes_per_job` | 50 GiB | Most archive data (as stored, often compressed) an agent reads for one job. Over it, the task fails before reading anything. The agent reports it in its heartbeat, and the page warns, by agent, before a job would exceed it. Agents before 2.2.0 are assumed to use the default. |
 | `min_free_bytes` | 10 GiB | Disk space the agent always leaves free. Checked before every file and while writing. |
 | `max_staged_bytes` | 2 GiB | Most uncompressed data waiting in the staging directory. Above it, the agent waits for the forwarder to send what is staged before it reads the next file. |
 | `staging_stall_seconds` | 1800 | Fail the task if staged data hasn't shrunk for this long while waiting. |

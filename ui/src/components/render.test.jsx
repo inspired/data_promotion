@@ -11,7 +11,7 @@ import JobPanel from './JobPanel';
 import JobsTable from './JobsTable';
 import PromotionPlanner from './PromotionPlanner';
 import AgentView from './AgentView';
-import { fetchAgentCatalog, fetchFieldSamples, submitPromotion } from '../lib/api';
+import { fetchAgentCatalog, fetchFieldSamples, fetchSizeEstimate, submitPromotion } from '../lib/api';
 import { IndexFilterField, LongRangeNotice } from './NewPromotion';
 
 // SplunkwebConnector talks to splunkd (time parsing, capabilities); pass children through.
@@ -28,6 +28,7 @@ jest.mock('../lib/api', () => ({
     runSearch: jest.fn(() => Promise.resolve([])),
     submitPromotion: jest.fn(() => Promise.resolve({ job_id: 'new1', status: 'pending' })),
     fetchAgentCatalog: jest.fn(() => Promise.resolve([])),
+    fetchSizeEstimate: jest.fn(() => Promise.resolve([])),
     fetchFieldSamples: jest.fn(() => Promise.resolve([
         { agent: 'a1', indexes: ['_internal', 'main'], indexed_fields: ['node_guid'], events_sampled: 200, sampled_at: 1 },
         { agent: 'a2', indexes: ['_internal'], indexed_fields: [], events_sampled: 200, sampled_at: 2 },
@@ -253,6 +254,45 @@ test('LongRangeNotice is silent with a destination index', async () => {
 test('NewPromotion: no long-range warning for the default 24 hours', async () => {
     const { text } = await render(<NewPromotion catalog={[]} forwarders={fwd} onSubmitted={() => {}} />);
     expect(text()).not.toContain('buckets then span weeks');
+});
+
+const GIB = 1024 ** 3;
+const estimateRows = (rows) => rows.map(([agent, hostname, gib, limitGib]) => ({
+    agent, hostname, bytes: String(gib * GIB), max_bytes_per_job: limitGib ? String(limitGib * GIB) : '',
+    earliest: '1795046400', latest: '1795219200',
+}));
+
+async function plannerWithEstimate(rows) {
+    jest.useFakeTimers();
+    fetchSizeEstimate.mockClear();
+    fetchSizeEstimate.mockImplementation(() => Promise.resolve(estimateRows(rows)));
+    try {
+        const r = await render(
+            <PromotionPlanner sourcetype="splunkd" initialDay="2026-11-19" catalogRows={catalogRows} jobs={[]}
+                forwarders={fwd} onClose={() => {}} onSubmitted={() => {}} onOpenJob={() => {}} />
+        );
+        await act(async () => { jest.advanceTimersByTime(1000); });
+        return r;
+    } finally {
+        jest.useRealTimers();
+    }
+}
+
+test('PromotionPlanner shows the estimated size of the selection', async () => {
+    const { text } = await plannerWithEstimate([['A1', 'hf-osl-0001', 30, 50], ['A2', 'hf-ams-0002', 10, 50]]);
+    expect(fetchSizeEstimate).toHaveBeenCalledWith('splunkd', [], 1795046400, 1795132800);
+    expect(text()).toContain('about 40.0 GB from 2 agents, at most 30.0 GB from one agent (hf-osl-0001)');
+    expect(text()).not.toContain('promote nothing');
+});
+
+test('PromotionPlanner warns about agents over their limit, by name', async () => {
+    const { text } = await plannerWithEstimate([
+        ['A1', 'hf-osl-0001', 72, 50], ['A2', 'hf-ams-0002', 60, null], ['A3', 'hf-fra-0003', 10, 50],
+    ]);
+    expect(text()).toContain('2 of 3 agents would read more than their limit and promote nothing');
+    expect(text()).toContain('hf-osl-0001 (72.0 GB, limit 50.0 GB)');
+    expect(text()).toContain('hf-ams-0002 (60.0 GB, limit 50.0 GB by default)');
+    expect(text()).toContain('The other agents still promote their share.');
 });
 
 test('IndexFilterField suggests the sampled indexes of the sourcetype', async () => {

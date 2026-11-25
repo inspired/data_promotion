@@ -6,7 +6,7 @@
 import SearchJob from '@splunk/search-job';
 import { createRESTURL } from '@splunk/splunk-utils/url';
 import { getDefaultFetchInit, handleResponse, handleError } from '@splunk/splunk-utils/fetch';
-import { APP, JOBS, CATALOG, SOURCES, FORWARDER_NAMES, TASKS, AGENTS, FIELDS, CATALOG_SEARCH, cancelledStatus, submitSearch } from './promotion';
+import { APP, JOBS, CATALOG, SOURCES, FORWARDER_NAMES, TASKS, AGENTS, FIELDS, CATALOG_SEARCH, cancelledStatus, sizeEstimateSearch, submitSearch } from './promotion';
 
 function kvURL(collection, key) {
     const path = `storage/collections/data/${collection}${key ? `/${encodeURIComponent(key)}` : ''}`;
@@ -138,4 +138,12 @@ export async function submitPromotion({ sourcetype, indexFilter, forwarders, tar
     const rows = await runSearch(spl, String(earliest), String(latest));
     if (!rows[0]) throw new Error('The submit search returned no result.');
     return rows[0];
+}
+
+/**
+ * Estimated bytes each agent would read for a job, with its max_bytes_per_job: one row per
+ * agent. earliest/latest: the job's time range (Splunk time modifiers or epochs).
+ */
+export function fetchSizeEstimate(sourcetype, agents, earliest, latest) {
+    return runSearch(sizeEstimateSearch(sourcetype, agents), String(earliest), String(latest));
 }

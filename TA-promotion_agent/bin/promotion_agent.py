@@ -727,6 +727,7 @@ def heartbeat(kv, cfg, agent, totals=None):
         "guid": agent["guid"], "hostname": agent["hostname"],
         "splunk_version": agent.get("splunk_version", ""), "os": agent.get("os", ""),
         "agent_version": read_app_version(), "backend": cfg.get("agent", "backend"),
+        "max_bytes_per_job": cfg.getint("agent", "max_bytes_per_job"),
         "last_seen": int(time.time()),
     })
     if totals is not None:

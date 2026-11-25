@@ -109,6 +109,77 @@ export function isLongRangeToOriginalIndex(seconds, targetIndex) {
     return seconds !== null && seconds > LONG_RANGE_SECONDS && !(targetIndex || '').trim();
 }
 
+// Agent defaults (TA-promotion_agent promotion_agent.conf). Agents before 2.2.0 don't report
+// their limit; they are assumed to use the default.
+export const DEFAULT_MAX_BYTES_PER_JOB = 53687091200;
+export const DEFAULT_FILE_SLACK_SECONDS = 3600;
+
+/**
+ * SPL estimating how much each agent would read for a job. Run it with the job's own time
+ * range: addinfo resolves it exactly as the promote_submit macro does. Catalog rows are per
+ * agent and UTC day; a partly covered day counts in proportion, widened by the agents'
+ * file slack, as the agent also reads neighbouring files.
+ * agents: agent GUIDs to include; empty means all.
+ */
+export function sizeEstimateSearch(sourcetype, agents = []) {
+    const st = String(sourcetype || '').trim();
+    if (validateSourcetype(st)) throw new Error('Invalid sourcetype.');
+    const guids = agents.map(upper);
+    if (guids.some((g) => !isValidGuid(g))) throw new Error('Invalid agent GUID.');
+    const slack = DEFAULT_FILE_SLACK_SECONDS;
+    return `| inputlookup promotion_catalog where sourcetype="${st}"`
+        + (guids.length ? ` | where ${guids.map((g) => `agent="${g}"`).join(' OR ')}` : '')
+        + ' | addinfo'
+        + ' | eval lo=floor(tonumber(info_min_time)), hi=tonumber(info_max_time)'
+        + ' | eval hi=if(isnull(hi) OR hi>now(), now(), hi)'
+        + ` | eval slo=lo-${slack}, shi=hi+${slack}, earliest=tonumber(earliest), latest=tonumber(latest)`
+        + ' | where latest > slo AND earliest < shi'
+        + ' | eval part=(min(latest, shi) - max(earliest, slo)) / max(latest - earliest, 1)'
+        + ' | eval bytes=round(tonumber(bytes) * min(1, max(0, part)))'
+        + ' | stats sum(bytes) AS bytes max(lo) AS earliest max(hi) AS latest by agent'
+        + ' | lookup promotion_agents guid AS agent OUTPUT hostname max_bytes_per_job'
+        + ' | sort 0 - bytes'
+        + ' | table agent hostname bytes max_bytes_per_job earliest latest';
+}
+
+/** Agent GUIDs holding the selected forwarders' files ([] = no selection = all agents). */
+export function agentsForSelection(forwarders, selected) {
+    if (!selected || !selected.length) return [];
+    const want = new Set(selected.map(upper));
+    const out = new Set();
+    (forwarders || []).forEach((f) => {
+        if (want.has(upper(f.guid))) (f.agents && f.agents.length ? f.agents : [f.guid]).forEach((a) => out.add(upper(a)));
+    });
+    return [...out].sort();
+}
+
+/**
+ * Size estimate rows -> { agents, bytes, largest, over, seconds }.
+ * over: agents whose estimate is above their max_bytes_per_job, largest first. Their task
+ * fails before reading anything. seconds: the resolved length of the range.
+ */
+export function summarizeEstimate(rows) {
+    const list = (rows || []).map((r) => {
+        const reported = num(r.max_bytes_per_job);
+        return {
+            agent: r.agent,
+            name: r.hostname || r.agent,
+            bytes: num(r.bytes) || 0,
+            limit: reported || DEFAULT_MAX_BYTES_PER_JOB,
+            limitReported: !!reported,
+        };
+    }).filter((r) => r.bytes > 0).sort((a, b) => b.bytes - a.bytes);
+    const e = num(rows && rows[0] && rows[0].earliest);
+    const l = num(rows && rows[0] && rows[0].latest);
+    return {
+        agents: list.length,
+        bytes: list.reduce((t, r) => t + r.bytes, 0),
+        largest: list[0] || null,
+        over: list.filter((r) => r.bytes > r.limit),
+        seconds: e !== null && l !== null ? l - e : null,
+    };
+}
+
 export function isValidJobId(id) {
     return typeof id === 'string' && JOB_ID_RE.test(id);
 }

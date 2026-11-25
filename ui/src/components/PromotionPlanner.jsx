@@ -7,7 +7,8 @@ import Text from '@splunk/react-ui/Text';
 import Typography from '@splunk/react-ui/Typography';
 import { submitPromotion } from '../lib/api';
 import {
-    formatBytes, formatCount, forwardersWithSourcetype, statusMeta, validateIndexFilter, validateTargetIndex,
+    agentsForSelection, formatBytes, formatCount, forwardersWithSourcetype, statusMeta, validateIndexFilter,
+    validateTargetIndex,
 } from '../lib/promotion';
 import {
     DAY, coverage, dataSegments, domainOf, formatSpan, formatUtc, overlapping, parseUtc, promotionSegments,
@@ -16,6 +17,7 @@ import {
     ForwarderPicker, IndexFilterField, LongRangeNotice, TargetIndexField, TargetIndexNotice,
 } from './NewPromotion';
 import { Field, Row, Stack } from './Layout';
+import SizeEstimate, { useSizeEstimate } from './SizeEstimate';
 import Timeline from './Timeline';
 
 /** Start/end input: free text in UTC, applied on blur or Enter. */
@@ -85,6 +87,14 @@ export default function PromotionPlanner({
 
     const candidates = useMemo(() => forwardersWithSourcetype(forwarders, sourcetype), [forwarders, sourcetype]);
     const cover = coverage(selection, data);
+    const estimateAgents = useMemo(
+        () => (agent ? [agent.guid] : agentsForSelection(candidates, selected)),
+        [agent, candidates, selected],
+    );
+    const validRange = selection && selection.end > selection.start;
+    const estimate = useSizeEstimate(
+        sourcetype, estimateAgents, validRange ? selection.start : null, validRange ? selection.end : null,
+    );
     const overlaps = overlapping(selection, promotions);
     const indexError = validateIndexFilter(indexFilter) || validateTargetIndex(targetIndex);
     const rangeError = selection && selection.end <= selection.start ? 'End must be after start.' : null;
@@ -161,6 +171,7 @@ export default function PromotionPlanner({
                             </ControlGroup>
                         </Field>
                     </Row>
+                    <SizeEstimate state={estimate} />
                     {overlaps.length > 0 && (
                         <Message type="warning">
                             {`This range overlaps ${overlaps.length} earlier promotion${overlaps.length === 1 ? '' : 's'} (`}

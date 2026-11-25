@@ -501,6 +501,11 @@ class TestCatalog(Base):
         self.assertEqual((a["hostname"], a["forwarders"]), ("hf1", 1))
         self.assertEqual(state["served"], {GUID: ["splunkd"]})
 
+    def test_heartbeat_reports_size_limit(self):
+        self.cfg.cp.set("agent", "max_bytes_per_job", "1234")
+        ra.heartbeat(self.kv, self.cfg, AGENT)
+        self.assertEqual(self.kv.get(ra.AGENTS, GUID)["max_bytes_per_job"], 1234)
+
 
 class TestFieldSampling(Base):
     def publish(self, cache=None, now=100):

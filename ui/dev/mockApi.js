@@ -65,3 +65,26 @@ export const fetchAgentCatalog = async (guid) => {
         forwarders: '1', updated_at: String(now - 240),
     })));
 };
+
+// Per-agent size estimate: about 12-24 GB per agent and day, so a few weeks exceed the
+// 50 GiB default. Every 50th agent reports a higher limit; agents before 2.2.0 report none.
+const toEpoch = (v) => {
+    const t = String(v);
+    if (/^\d+(\.\d+)?$/.test(t)) return Number(t);
+    const m = /^-(\d+)(d|h)/.exec(t);
+    return m ? now - Number(m[1]) * (m[2] === 'd' ? 86400 : 3600) : now;
+};
+export const fetchSizeEstimate = async (sourcetype, agents, earliest, latest) => {
+    const lo = toEpoch(earliest);
+    const hi = Math.min(toEpoch(latest), now);
+    const days = Math.max(0, hi - lo) / 86400;
+    const pick = agents.length ? agents : Array.from({ length: N }, (_, i) => G(i));
+    return pick.map((g) => {
+        const i = parseInt(g.slice(0, 8), 10) || 0;
+        return {
+            agent: g, hostname: host(i), bytes: String(Math.round(days * (1.2e10 + (i % 7) * 2e9))),
+            max_bytes_per_job: i % 50 === 0 ? '107374182400' : (i % 3 ? '53687091200' : ''),
+            earliest: String(lo), latest: String(hi),
+        };
+    }).sort((a, b) => b.bytes - a.bytes);
+};

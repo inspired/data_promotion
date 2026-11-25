@@ -22,10 +22,12 @@ import {
     validateSourcetype,
     validateTargetIndex,
     validateTimeRange,
+    agentsForSelection,
     isLongRangeToOriginalIndex,
     rangeSeconds,
 } from '../lib/promotion';
 import { ButtonSlot, Field, Row, Stack } from './Layout';
+import SizeEstimate, { useSizeEstimate } from './SizeEstimate';
 
 const NO_REALTIME = (presets) => presets.filter((p) => !String(p.earliest).startsWith('rt'));
 const OPTION_LIMIT = 100;
@@ -174,6 +176,10 @@ export default function NewPromotion({ catalog, forwarders, onSubmitted, onOpenT
         setSelected((prev) => prev.filter((g) => ok.has(g)));
     }, [candidates]);
 
+    const agents = useMemo(() => agentsForSelection(candidates, selected), [candidates, selected]);
+    const estimate = useSizeEstimate(sourcetype, agents, earliest, latest);
+    const estimated = estimate.summary && estimate.summary.seconds;
+
     const indexError = validateIndexFilter(indexFilter);
     const formError = validateSourcetype(sourcetype) || validateTimeRange(earliest, latest) || indexError
         || validateTargetIndex(targetIndex);
@@ -277,8 +283,9 @@ export default function NewPromotion({ catalog, forwarders, onSubmitted, onOpenT
                             />
                         </ButtonSlot>
                     </Row>
+                    <SizeEstimate state={estimate} />
                     <TargetIndexNotice value={targetIndex} />
-                    <LongRangeNotice seconds={rangeSeconds(earliest, latest)} targetIndex={targetIndex} />
+                    <LongRangeNotice seconds={estimated || rangeSeconds(earliest, latest)} targetIndex={targetIndex} />
                     {result && (
                         <Message type={result.type} onRequestRemove={() => setResult(null)}>
                             {result.text}

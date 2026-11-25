@@ -32,6 +32,10 @@ import {
     rangeSeconds,
     isLongRangeToOriginalIndex,
     LONG_RANGE_SECONDS,
+    sizeEstimateSearch,
+    agentsForSelection,
+    summarizeEstimate,
+    DEFAULT_MAX_BYTES_PER_JOB,
 } from './promotion';
 
 const G1 = '5A8D3399-FD7B-41CB-B0A9-23CC0BCE0EF8';
@@ -60,6 +64,40 @@ describe('range length', () => {
         expect(isLongRangeToOriginalIndex(LONG_RANGE_SECONDS + 1, ' ')).toBe(true);
         expect(isLongRangeToOriginalIndex(LONG_RANGE_SECONDS + 1, 'promoted')).toBe(false);
         expect(isLongRangeToOriginalIndex(null, '')).toBe(false);
+    });
+});
+
+describe('size estimate', () => {
+    test('search: one sourcetype, optional agents, range from addinfo', () => {
+        const all = sizeEstimateSearch('splunkd');
+        expect(all).toMatch(/^\| inputlookup promotion_catalog where sourcetype="splunkd" \| addinfo/);
+        expect(all).toContain('lookup promotion_agents guid AS agent OUTPUT hostname max_bytes_per_job');
+        const some = sizeEstimateSearch('splunkd', [G1.toLowerCase(), G2]);
+        expect(some).toContain(`| where agent="${G1}" OR agent="${G2}" |`);
+        expect(() => sizeEstimateSearch('x" | delete')).toThrow(/sourcetype/);
+        expect(() => sizeEstimateSearch('splunkd', ['nope" OR 1'])).toThrow(/GUID/);
+    });
+
+    test('selected forwarders map to the agents holding their files', () => {
+        const fwds = [{ guid: G1, agents: [G1] }, { guid: G2, agents: [G1] }, { guid: 'C', agents: [] }];
+        expect(agentsForSelection(fwds, [])).toEqual([]);
+        expect(agentsForSelection(fwds, [G2.toLowerCase()])).toEqual([G1]);
+        expect(agentsForSelection(fwds, ['C'])).toEqual(['C']);
+    });
+
+    test('summary: totals, largest, agents over their limit (reported or default)', () => {
+        const s = summarizeEstimate([
+            { agent: G1, hostname: 'hf1', bytes: '100', max_bytes_per_job: '50', earliest: '1000', latest: '87400' },
+            { agent: G2, bytes: String(DEFAULT_MAX_BYTES_PER_JOB + 1), max_bytes_per_job: '' },
+            { agent: 'C', hostname: 'hf3', bytes: '10', max_bytes_per_job: '50' },
+            { agent: 'D', hostname: 'empty', bytes: '0' },
+        ]);
+        expect(s.agents).toBe(3);
+        expect(s.bytes).toBe(110 + DEFAULT_MAX_BYTES_PER_JOB + 1);
+        expect(s.largest.name).toBe(G2);
+        expect(s.over.map((r) => [r.name, r.limitReported])).toEqual([[G2, false], ['hf1', true]]);
+        expect(s.seconds).toBe(86400);
+        expect(summarizeEstimate([])).toEqual({ agents: 0, bytes: 0, largest: null, over: [], seconds: null });
     });
 });
 
