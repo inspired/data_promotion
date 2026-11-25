@@ -1080,7 +1080,7 @@ def recover_stale(kv, agent):
     for t in kv.query(TASKS, {"agent": agent["guid"], "status": "running"}):
         log.warning("action=task_orphaned task=%s", t["_key"])
         t.update(status="failed", finished_at=int(time.time()), updated_at=int(time.time()),
-                 message="agent stopped while the task was running; resubmit the job")
+                 message="the promotion stopped on this forwarder while the task was running (Splunk or the add-on restarted); resubmit the job")
         kv.put(TASKS, t["_key"], t)
 
 

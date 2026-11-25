@@ -19,10 +19,10 @@
 
 **The data you need for an investigation is sitting on a disk at a remote site.** Splunk [Ingest Actions](https://docs.splunk.com/Documentation/Splunk/latest/Data/DataIngest) can keep a full copy of your data in cheap storage and send only what you search every day to the indexers. That saves license and storage, but the copy is out of reach: hourly files on disks and buckets at many sites, which nobody can search.
 
-**Data Promotion** makes that copy usable. Each copy is an **edge archive**, kept at the site next to the forwarder that wrote it. A small agent beside every archive tells the Search Head what it holds. When you need it, pick a **sourcetype, a time range and the sites**, and press **Promote**. Each agent sends exactly those events from its own archive into Splunk, tagged so you can always tell them apart.
+**Data Promotion** makes that copy usable. Each copy is an **edge archive**, kept at the site next to the forwarder that wrote it. A small add-on on that forwarder tells the Search Head what the archive holds. When you need it, pick a **sourcetype, a time range and the forwarders**, and press **Promote**. Each forwarder sends exactly those events from its own archive into Splunk, tagged so you can always tell them apart.
 
 <p align="center">
-  <img src="docs/edge-archives.svg" alt="Remote sites each hold an edge archive (Ingest Actions output on local disk, a share or S3). A promotion agent next to each archive reports to the Search Head and, on request, sends the selected events to the indexers." width="100%">
+  <img src="docs/edge-archives.svg" alt="Remote sites each hold an edge archive (Ingest Actions output on local disk, a share or S3). The forwarder that wrote each archive reports what it holds to the Search Head and, on request, sends the selected events to the indexers." width="100%">
 </p>
 
 ## What it does
@@ -31,7 +31,7 @@
   <tr>
     <td width="33%" valign="top">
       <h3>See what you have</h3>
-      Every agent publishes what its edge archive holds, per sourcetype and day: files, size and time span. Event contents never leave the site until you promote them.
+      Every forwarder publishes what its edge archive holds, per sourcetype and day: files, size and time span. Event contents never leave the site until you promote them.
     </td>
     <td width="33%" valign="top">
       <h3>Pick on a timeline</h3>
@@ -53,14 +53,14 @@
     </td>
     <td valign="top">
       <h3>Follow every job</h3>
-      Progress per agent, a live count of indexed events, and <b>Open in Search</b>. Every promoted event carries <code>promote_job=&lt;job id&gt;</code>.
+      Progress per forwarder, a live count of indexed events, and <b>Open in Search</b>. Every promoted event carries <code>promote_job=&lt;job id&gt;</code>.
     </td>
   </tr>
 </table>
 
 ## See it in action
 
-**One page on the Search Head.** Start a promotion at the top, and follow every job, the data the edge archives hold, and your agents below.
+**One page on the Search Head.** Start a promotion at the top, and follow every job, the data the edge archives hold, and your forwarders below.
 
 <p align="center">
   <picture>
@@ -81,19 +81,19 @@
 <table>
   <tr>
     <td width="40%" valign="top">
-      <b>Follow every job.</b> Files read, events promoted and indexed, how long it took, and the progress of every agent. Open the promoted events in Search with one click.
+      <b>Follow every job.</b> Files read, events promoted and indexed, how long it took, and the progress of every forwarder. Open the promoted events in Search with one click.
       <br><br>
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/job-dark.png">
-        <img alt="Job details for a completed promotion from 1,500 agents: 844 million events promoted and indexed, with Open in Search and progress per agent" src="docs/images/job-light.png" width="100%">
+        <img alt="Job details for a completed promotion from 1,500 forwarders: 844 million events promoted and indexed, with Open in Search and progress per forwarder" src="docs/images/job-light.png" width="100%">
       </picture>
     </td>
     <td width="60%" valign="top">
-      <b>Promote from one site.</b> Open an agent to see what its edge archive holds, and promote a range from that agent only.
+      <b>Promote from one site.</b> Open a forwarder to see what its edge archive holds, and promote a range from that forwarder only.
       <br><br>
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/agent-dark.png">
-        <img alt="One agent's view: its datasets per sourcetype, its splunkd data on the timeline with an 18-hour selection, and a Promote from this agent button" src="docs/images/agent-light.png" width="100%">
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/forwarder-dark.png">
+        <img alt="One forwarder's view: its datasets per sourcetype, its splunkd data on the timeline with an 18-hour selection, and a Promote from this forwarder button" src="docs/images/forwarder-light.png" width="100%">
       </picture>
     </td>
   </tr>
@@ -107,12 +107,12 @@ The quickest way is an all-in-one Splunk instance that already writes Ingest Act
 
 1. **Download** `promotion_control-<version>.spl` and `TA-promotion_agent-<version>.spl` from the [latest release](../../releases/latest).
 2. **Install** both: **Apps → Manage Apps → Install app from file**, then restart.
-3. **Point the agent at the edge archive.** Create `$SPLUNK_HOME/etc/apps/TA-promotion_agent/local/promotion_agent.conf`:
+3. **Point the add-on at the edge archive.** Create `$SPLUNK_HOME/etc/apps/TA-promotion_agent/local/promotion_agent.conf`:
    ```ini
    [agent]
    fs_root = /path/to/your/ingest-actions/output
    ```
-4. **Open Data Promotion.** After a few minutes the **Agents** tab shows the agent as reporting and **Available data** lists what it holds. Pick a sourcetype and a time range, then **Promote**.
+4. **Open Data Promotion.** After a few minutes the **Forwarders** tab shows the forwarder as reporting and **Available data** lists what it holds. Pick a sourcetype and a time range, then **Promote**.
 
 To run it across sites, with a Search Head and many forwarders, see the [admin guide](docs/admin-guide.md).
 
@@ -141,7 +141,7 @@ On an all-in-one instance, install both on the same server.
 ```sh
 cd ui && npm ci && npm run package          # dist/promotion_control-<version>.spl
 cd .. && COPYFILE_DISABLE=1 tar --no-xattrs -czf dist/TA-promotion_agent-<version>.spl TA-promotion_agent
-python3 -m unittest discover -s tests       # agent tests
+python3 -m unittest discover -s tests       # add-on tests
 (cd ui && npm test)                         # UI tests
 ```
 

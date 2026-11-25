@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="660" viewBox="0 0 1000 660" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
   <title id="t">Edge archives at remote sites</title>
-  <desc id="d">Remote sites each keep an edge archive: the Ingest Actions file system or S3 output of their Heavy Forwarders. A promotion agent next to each archive reports what it holds to the central Search Head and, when a job asks for it, sends the selected events to the indexers.</desc>
+  <desc id="d">Remote sites each keep an edge archive: the Ingest Actions file system or S3 output of their Heavy Forwarders. The forwarder that wrote each archive reports what it holds to the central Search Head and, when a job asks for it, sends the selected events to the indexers.</desc>
   <defs>
     <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#7cc4f2"/>
@@ -33,7 +33,7 @@
   <text x="214" y="90" font-size="16" font-weight="700" fill="#0f172a">Search Head</text>
   <text x="214" y="109" font-size="12" fill="#475569" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">promotion_control</text>
   <text x="214" y="134" font-size="12.5" fill="#1e293b">• Data Promotion page</text>
-  <text x="214" y="153" font-size="12.5" fill="#1e293b">• KV store: jobs, catalog, agents, tasks</text>
+  <text x="214" y="153" font-size="12.5" fill="#1e293b">• KV store: jobs, catalog, forwarders, tasks</text>
   <text x="214" y="172" font-size="12.5" fill="#1e293b">• Tracks every job until indexed</text>
 
   <!-- indexers / data lake -->

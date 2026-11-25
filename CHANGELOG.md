@@ -9,7 +9,7 @@ Each release lists the version of the Search Head app and of the agent add-on. D
 ### Changes
 - **Warning for long ranges.** When a range is longer than three days and no destination index is set, the page warns that the old events would share buckets with live data in their original index. Those buckets then span weeks, so searches get slower and data is kept longer. Shown both in **New promotion** and on the timeline.
 - **Estimated size before you promote.** The form and the timeline show about how much the agents will read for the selected range, and the most any one agent will read. The estimate comes from the catalog: days that are only partly selected count in proportion.
-- **The page says "forwarders" instead of "agents".** The tab, columns, form fields and messages name the Heavy Forwarders you promote from. The add-on is still `TA-promotion_agent`, and nothing changes in the backend.
+- **"Forwarders" instead of "agents".** The page, the job messages and the docs name the Heavy Forwarders you promote from. The add-on is still `TA-promotion_agent`, and its settings, collections and fields keep their names.
 - **Warning before a job exceeds an agent's limit.** Agents now report their `max_bytes_per_job` with their heartbeat. If an agent would read more than that, the page names it before you submit. Agents before 2.2.0 are assumed to use the 50 GiB default.
 
 ### Fixes

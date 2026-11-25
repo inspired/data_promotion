@@ -59,7 +59,7 @@ function Datasets({ datasets, value, onChange }) {
 /**
  * One agent: the datasets (sourcetypes) it holds, each on the promotion timeline, and a
  * promotion of a picked range from this agent only.
- * forwarder: a buildForwarders row. Its data is read from the catalog of the agent(s)
+ * forwarder: a buildForwarders row. Its data is read from the catalog of the forwarder(s)
  * that hold its files, which is the forwarder itself unless files sit in a shared store.
  */
 export default function AgentView({ forwarder, jobs, onClose, onSubmitted, onOpenJob }) {
