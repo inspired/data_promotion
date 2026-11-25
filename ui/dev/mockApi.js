@@ -45,13 +45,13 @@ export const fetchTasks = async (jobId) => (jobId.endsWith('99255a')
         const ev = 562950 + (i % 3 === 0 ? 1 : 0);
         return {
             _key: `${jobId}|${G(i)}`, agent: G(i), agent_host: host(i), status: 'done', files_total: 72, files_done: 72,
-            events_staged: ev, message: `${ev} events from 72 files handed to the batch input`,
+            events_staged: ev, message: `${ev} events from 72 files handed to the stash_hec input`,
         };
     })
     : Array.from({ length: jobId.endsWith('a1b2c3') ? 3 : 45 }, (_, i) => ({
     _key: `${jobId}|${G(i)}`, agent: G(i), agent_host: host(i),
     status: i === 0 ? 'running' : i === 4 ? 'failed' : 'done', files_total: 40, files_done: i === 0 ? 7 : 40,
-    events_staged: 401000 + i, message: i === 4 ? 'not enough free disk space (free=1073741824, need=2147483648)' : i === 0 ? 'promoting' : '401000 events from 40 files handed to the batch input',
+    events_staged: 401000 + i, message: i === 4 ? 'not enough free disk space (free=1073741824, min_free_bytes=10737418240)' : i === 0 ? 'promoting' : '401000 events from 40 files handed to the stash_hec input',
 })));
 export const fetchThemePreference = async () => null;
 export const cancelJob = async () => ({});
@@ -66,8 +66,9 @@ export const fetchAgentCatalog = async (guid) => {
     })));
 };
 
-// Per-agent size estimate: about 12-24 GB per agent and day, so a few weeks exceed the
-// 50 GiB default. Every 50th agent reports a higher limit; agents before 2.2.0 report none.
+// Per-forwarder size estimate, consistent with the mock catalogs above: all forwarders
+// together hold the fetchCatalog bytes per day; one forwarder's view uses its
+// fetchAgentCatalog size. Every 50th forwarder reports a higher limit; older add-ons none.
 const toEpoch = (v) => {
     const t = String(v);
     if (/^\d+(\.\d+)?$/.test(t)) return Number(t);
@@ -79,10 +80,11 @@ export const fetchSizeEstimate = async (sourcetype, agents, earliest, latest) =>
     const hi = Math.min(toEpoch(latest), now);
     const days = Math.max(0, hi - lo) / 86400;
     const pick = agents.length ? agents : Array.from({ length: N }, (_, i) => G(i));
+    const perDay = agents.length === 1 ? 4.6e8 : (2.1e10 * (Math.max(0, sts.indexOf(sourcetype)) + 1)) / N;
     return pick.map((g) => {
         const i = parseInt(g.slice(0, 8), 10) || 0;
         return {
-            agent: g, hostname: host(i), bytes: String(Math.round(days * (1.2e10 + (i % 7) * 2e9))),
+            agent: g, hostname: host(i), bytes: String(Math.round(days * perDay * (0.7 + (i % 7) * 0.1))),
             max_bytes_per_job: i % 50 === 0 ? '107374182400' : (i % 3 ? '53687091200' : ''),
             earliest: String(lo), latest: String(hi),
         };
