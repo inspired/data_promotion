@@ -320,6 +320,117 @@ class TestRunJob(Base):
         self.assertEqual(self.task()["status"], "cancelled")
         self.assertEqual(len(self.staged_events()), 1)
 
+    def test_disk_guard_while_writing(self):
+        frees = iter([100, 5])
+        w = ra.GuardedWriter(open(os.devnull, "wb"), lambda: next(frees), min_free=10, check_every=4)
+        w.write(b"abcd")  # check: 100 free
+        with self.assertRaises(ra.JobError):
+            w.write(b"abcd")  # check: 5 free < 10
+
+    def test_low_disk_fails_task_and_cleans_work_dir(self):
+        self.write_hour(H06, [event(H06 + 1)])
+        self.cfg.cp.set("agent", "min_free_bytes", str(10 ** 18))
+        self.submit(H06, H06 + HOUR)
+        self.agent_run()
+        t = self.task()
+        self.assertEqual(t["status"], "failed")
+        self.assertIn("free disk space", t["message"])
+        self.assertFalse(os.path.exists(os.path.join(self.cfg.get("agent", "work_dir"), "job1")))
+
+
+class TestBackPressure(Base):
+    """Staged *.stash_hec files are read by Splunk; here a fake clock and a fake 'input'
+    that drains the staging dir stand in for it."""
+
+    def setUp(self):
+        super().setUp()
+        for h in range(3):
+            self.write_hour(H06 + h * HOUR, [event(H06 + h * HOUR + 1)])
+        self.cfg.cp.set("agent", "max_staged_bytes", "1")  # one staged file is already too much
+        self.cfg.cp.set("agent", "staging_stall_seconds", "60")
+        self.clock = [0.0]
+        self.sleeps = 0
+        self.on_sleep = lambda: None
+        self._orig = (ra._sleep, ra._now)
+        ra._now = lambda: self.clock[0]
+
+        def sleep(sec):
+            self.sleeps += 1
+            self.clock[0] += sec
+            self.on_sleep()
+        ra._sleep = sleep
+
+    def tearDown(self):
+        ra._sleep, ra._now = self._orig
+        super().tearDown()
+
+    def drain(self):
+        """What the stash_hec batch input does: index and delete staged files."""
+        root = self.cfg.get("agent", "staging_dir")
+        for dirpath, _, names in os.walk(root):
+            for n in names:
+                if n.endswith(ra.STAGED_SUFFIX):
+                    os.remove(os.path.join(dirpath, n))
+
+    def test_waits_for_input_to_read_staged_files(self):
+        self.on_sleep = self.drain
+        self.submit(H06, H06 + 3 * HOUR)
+        self.agent_run()
+        t = self.task()
+        self.assertEqual(t["status"], "done")
+        self.assertEqual(t["events_staged"], 3)
+        self.assertEqual(self.sleeps, 2)  # waited before the 2nd and 3rd file
+
+    def test_counts_files_left_by_other_jobs(self):
+        other = os.path.join(self.cfg.get("agent", "staging_dir"), "older_job")
+        os.makedirs(other)
+        with open(os.path.join(other, "x.stash_hec"), "wb") as f:
+            f.write(b"{}\n")
+        self.on_sleep = self.drain
+        self.submit(H06, H06 + 3 * HOUR)
+        self.agent_run()
+        self.assertEqual(self.task()["status"], "done")
+        self.assertEqual(self.sleeps, 3)
+
+    def test_fails_when_input_never_reads(self):
+        self.submit(H06, H06 + 3 * HOUR)
+        self.agent_run()
+        t = self.task()
+        self.assertEqual(t["status"], "failed")
+        self.assertIn("stash_hec", t["message"])
+        self.assertEqual(t["files_done"], 1)
+
+    def test_slow_progress_is_not_a_stall(self):
+        # Staged bytes keep shrinking, a little at a time, for longer than the stall limit.
+        staged = os.path.join(self.cfg.get("agent", "staging_dir"), "older_job")
+        os.makedirs(staged)
+        for i in range(30):
+            with open(os.path.join(staged, "f%02d.stash_hec" % i), "wb") as f:
+                f.write(b"x" * 10)
+        self.cfg.cp.set("agent", "max_staged_bytes", "0")
+
+        def drain_one():
+            names = sorted(os.listdir(staged))
+            if names:
+                os.remove(os.path.join(staged, names[0]))
+            else:
+                self.drain()
+        self.on_sleep = drain_one
+        self.submit(H06, H06 + HOUR)
+        self.agent_run()
+        self.assertEqual(self.task()["status"], "done")
+        self.assertGreater(self.clock[0], 60)
+
+    def test_cancel_while_waiting(self):
+        def cancel():
+            self.kv.data[ra.JOBS]["job1"]["status"] = "cancel_requested"
+        self.on_sleep = cancel
+        self.submit(H06, H06 + 3 * HOUR)
+        self.agent_run()
+        t = self.task()
+        self.assertEqual(t["status"], "cancelled")
+        self.assertEqual(t["files_done"], 1)
+
     def test_recover_stale(self):
         self.kv.put(ra.TASKS, "j|" + GUID, {"agent": GUID, "status": "running"})
         self.kv.put(ra.TASKS, "j|" + GUID2, {"agent": GUID2, "status": "running"})

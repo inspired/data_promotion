@@ -67,6 +67,48 @@ export function validateTimeRange(earliest, latest) {
     return null;
 }
 
+// Ranges longer than this, sent to their original index, get a warning: old events mixed
+// into live hot buckets make those buckets span weeks.
+export const LONG_RANGE_SECONDS = 3 * 86400;
+
+const UNIT_SECONDS = {
+    s: 1, sec: 1, secs: 1, second: 1, seconds: 1,
+    m: 60, min: 60, mins: 60, minute: 60, minutes: 60,
+    h: 3600, hr: 3600, hrs: 3600, hour: 3600, hours: 3600,
+    d: 86400, day: 86400, days: 86400,
+    w: 604800, week: 604800, weeks: 604800,
+    mon: 2592000, month: 2592000, months: 2592000,
+    q: 7776000, qtr: 7776000, qtrs: 7776000, quarter: 7776000, quarters: 7776000,
+    y: 31536000, yr: 31536000, yrs: 31536000, year: 31536000, years: 31536000,
+};
+const RELATIVE_RE = /^([+-]\d*)([a-z]+)(@.*)?$/;
+
+/**
+ * A Splunk time (epoch, "now", "@d", "-30d@d") as an approximate epoch, or null if it can't
+ * be read. Snapping is ignored: good enough to estimate the length of a range.
+ */
+export function approxTime(v, now = Date.now() / 1000) {
+    const t = String(v === undefined || v === null ? '' : v).trim().toLowerCase();
+    if (t === '' || t === 'now' || t.startsWith('@')) return now;
+    if (/^\d+(\.\d+)?$/.test(t)) return Number(t);
+    const m = RELATIVE_RE.exec(t);
+    if (!m || !UNIT_SECONDS[m[2]]) return null;
+    const n = m[1].length > 1 ? Number(m[1].slice(1)) : 1;
+    return now + (m[1][0] === '-' ? -1 : 1) * n * UNIT_SECONDS[m[2]];
+}
+
+/** Approximate length of [earliest, latest) in seconds, or null if unknown. */
+export function rangeSeconds(earliest, latest, now = Date.now() / 1000) {
+    const e = approxTime(earliest, now);
+    const l = approxTime(latest, now);
+    return e === null || l === null ? null : l - e;
+}
+
+/** Should the form warn that a long range goes back into live indexes? */
+export function isLongRangeToOriginalIndex(seconds, targetIndex) {
+    return seconds !== null && seconds > LONG_RANGE_SECONDS && !(targetIndex || '').trim();
+}
+
 export function isValidJobId(id) {
     return typeof id === 'string' && JOB_ID_RE.test(id);
 }

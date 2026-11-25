@@ -12,7 +12,7 @@ import JobsTable from './JobsTable';
 import PromotionPlanner from './PromotionPlanner';
 import AgentView from './AgentView';
 import { fetchAgentCatalog, fetchFieldSamples, submitPromotion } from '../lib/api';
-import { IndexFilterField } from './NewPromotion';
+import { IndexFilterField, LongRangeNotice } from './NewPromotion';
 
 // SplunkwebConnector talks to splunkd (time parsing, capabilities); pass children through.
 jest.mock('@splunk/react-time-range/SplunkwebConnector', () => ({
@@ -237,6 +237,22 @@ test('NewPromotion: destination index shows the notice and is validated', async 
     await act(async () => typeInto(input, 'Bad Index'));
     expect(text()).not.toContain('must already exist on the indexers');
     expect(text()).toContain('Use lowercase letters');
+});
+
+test('LongRangeNotice warns for a long range to the original index', async () => {
+    const { text } = await render(<LongRangeNotice seconds={30 * 86400} targetIndex="" />);
+    expect(text()).toContain('about 30 days');
+    expect(text()).toContain('destination index used only for promotions');
+});
+
+test('LongRangeNotice is silent with a destination index', async () => {
+    const { text } = await render(<LongRangeNotice seconds={30 * 86400} targetIndex="promoted" />);
+    expect(text()).not.toContain('about 30 days');
+});
+
+test('NewPromotion: no long-range warning for the default 24 hours', async () => {
+    const { text } = await render(<NewPromotion catalog={[]} forwarders={fwd} onSubmitted={() => {}} />);
+    expect(text()).not.toContain('buckets then span weeks');
 });
 
 test('IndexFilterField suggests the sampled indexes of the sourcetype', async () => {

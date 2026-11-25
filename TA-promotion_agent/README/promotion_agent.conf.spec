@@ -9,7 +9,16 @@ staging_dir = <path>
   the same filesystem as work_dir.
 file_slack_seconds = <integer>
 max_bytes_per_job = <integer>
+* Most bytes of edge archive files (as stored) one agent reads for one job.
 min_free_bytes = <integer>
+* Free disk space always left on the work / staging file system. Checked before every file
+  and every 64 MiB written.
+max_staged_bytes = <integer>
+* Before staging the next file, wait while more than this many bytes are staged and not yet
+  read by the stash_hec input (all jobs together).
+staging_stall_seconds = <integer>
+* Fail the task if staged data has not shrunk for this long while waiting.
+staging_poll_seconds = <integer>
 catalog_interval = <integer>
 sample_files = <integer>
 * Newest files per sourcetype whose first events are sampled with each catalog publish.

@@ -12,7 +12,9 @@ import {
 import {
     DAY, coverage, dataSegments, domainOf, formatSpan, formatUtc, overlapping, parseUtc, promotionSegments,
 } from '../lib/timeline';
-import { ForwarderPicker, IndexFilterField, TargetIndexField, TargetIndexNotice } from './NewPromotion';
+import {
+    ForwarderPicker, IndexFilterField, LongRangeNotice, TargetIndexField, TargetIndexNotice,
+} from './NewPromotion';
 import { Field, Row, Stack } from './Layout';
 import Timeline from './Timeline';
 
@@ -189,6 +191,10 @@ export default function PromotionPlanner({
                         </Field>
                     </Row>
                     <TargetIndexNotice value={targetIndex} />
+                    <LongRangeNotice
+                        seconds={selection ? selection.end - selection.start : null}
+                        targetIndex={targetIndex}
+                    />
                     {error && <Message type="error" onRequestRemove={() => setError(null)}>{error}</Message>}
                 </Stack>
             </Modal.Body>

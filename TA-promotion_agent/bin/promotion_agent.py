@@ -25,6 +25,8 @@ Runs as a Splunk scripted input (passAuth = splunk-system-user). Each run:
          $SPLUNK_HOME/var/spool/splunk, where Splunk's built-in [batch://...stash_hec]
          input (INDEXED_EXTRACTIONS = hec) reads them, so this forwarder sends them to
          its indexers
+       - before each file, waits while more than max_staged_bytes are staged and not yet
+         read, so a long range never fills the disk with uncompressed events
   Agents never write the job record; the Search Head's "Promotion - Track indexing"
   search rolls the tasks up into the job status.
 
@@ -115,6 +117,9 @@ DEFAULTS = {
         "file_slack_seconds": "3600",
         "max_bytes_per_job": "53687091200",
         "min_free_bytes": "10737418240",
+        "max_staged_bytes": "2147483648",
+        "staging_stall_seconds": "1800",
+        "staging_poll_seconds": "5",
         "catalog_interval": "900",
         "sample_files": "3",
         "sample_lines": "200",
@@ -748,12 +753,34 @@ def staged_name(name):
     return name + STAGED_SUFFIX
 
 
+class GuardedWriter:
+    """Fails the task instead of filling the disk: filtered events are written
+    uncompressed, so one file can be many times the size of its .gz source."""
+    CHECK_EVERY = 64 * 1024 * 1024
+
+    def __init__(self, f, free_fn, min_free, check_every=None):
+        self.f, self.free_fn, self.min_free = f, free_fn, min_free
+        self.check_every = check_every or self.CHECK_EVERY
+        self.unchecked = 0
+
+    def write(self, b):
+        self.unchecked += len(b)
+        if self.unchecked >= self.check_every:
+            self.unchecked = 0
+            free = self.free_fn()
+            if free is not None and free < self.min_free:
+                raise JobError("stopped: free disk space fell below min_free_bytes (free=%d, min=%d)"
+                               % (free, self.min_free))
+        return self.f.write(b)
+
+
 class StagingSink:
     """Filtered files are written to work/<job>/, then renamed into staging/<job>/,
     where Splunk's stash_hec batch input indexes and deletes them."""
 
     def __init__(self, work_root, staging_root, job_key):
         self.work = os.path.join(work_root, job_key)
+        self.staging_root = staging_root
         self.staging = os.path.join(staging_root, job_key)
         os.makedirs(self.work, exist_ok=True)
         os.makedirs(self.staging, exist_ok=True)
@@ -762,11 +789,21 @@ class StagingSink:
     def free_bytes(self):
         return shutil.disk_usage(self.work).free
 
-    def begin(self, name):
+    def staged_bytes(self):
+        """Bytes staged by any job on this forwarder that the stash_hec input has not read yet."""
+        total = 0
+        for dirpath, _, names in os.walk(self.staging_root):
+            for n in names:
+                if n.endswith(STAGED_SUFFIX):
+                    with contextlib.suppress(OSError):
+                        total += os.path.getsize(os.path.join(dirpath, n))
+        return total
+
+    def begin(self, name, min_free=0):
         self.name_out = staged_name(name)
         self.tmp = os.path.join(self.work, self.name_out)
         self.f = open(self.tmp, "wb")
-        return self.f
+        return GuardedWriter(self.f, self.free_bytes, min_free) if min_free > 0 else self.f
 
     def end(self, kept):
         self.f.close()
@@ -909,6 +946,51 @@ class Task:
         self.save(force=True, status=status, finished_at=int(time.time()), message=message[:1000])
 
 
+_sleep = time.sleep
+_now = time.time
+
+
+def wait_for_room(cfg, kv, sink, task, job_key):
+    """Back-pressure: before staging the next file, wait until the stash_hec input has read
+    enough of what is already staged, and free disk is above min_free_bytes. Cancels and
+    fails like the rest of the task; fails if the staged data stops shrinking."""
+    max_staged = cfg.getint("agent", "max_staged_bytes")
+    min_free = cfg.getint("agent", "min_free_bytes")
+    stall = cfg.getint("agent", "staging_stall_seconds")
+    poll = max(1, cfg.getint("agent", "staging_poll_seconds"))
+    staged = sink.staged_bytes()
+    free = sink.free_bytes()
+    if staged <= max_staged and (free is None or free >= min_free):
+        return
+    log.info("action=staging_wait job=%s staged=%d free=%s", task.job_id, staged, free)
+    low, low_at = staged, _now()
+    while True:
+        if staged == 0 and free is not None and free < min_free:
+            raise JobError("not enough free disk space (free=%d, min_free_bytes=%d)" % (free, min_free))
+        if job_stopped(kv, job_key):
+            raise Cancelled()
+        task.save(message="waiting for the forwarder to send %s staged" % _fmt_bytes(staged))
+        _sleep(poll)
+        staged = sink.staged_bytes()
+        free = sink.free_bytes()
+        if staged <= max_staged and (free is None or free >= min_free):
+            task.save(message="promoting")
+            return
+        if staged < low:
+            low, low_at = staged, _now()
+        elif _now() - low_at > stall:
+            raise JobError("staged events were not read for %d s (%s waiting); check that the "
+                           "stash_hec batch input is enabled and the forwarder can reach its "
+                           "indexers" % (stall, _fmt_bytes(staged)))
+
+
+def _fmt_bytes(n):
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if n < 1024 or unit == "GiB":
+            return ("%d %s" % (n, unit)) if unit == "B" else ("%.1f %s" % (n, unit))
+        n /= 1024.0
+
+
 def run_task(cfg, backend, kv, job, task, sink_factory):
     key = job["_key"]
     job_id = task.job_id
@@ -944,17 +1026,16 @@ def run_task(cfg, backend, kv, job, task, sink_factory):
     if total > max_bytes:
         raise JobError("selected %d bytes exceeds max_bytes_per_job=%d" % (total, max_bytes))
 
+    min_free = cfg.getint("agent", "min_free_bytes")
     sink = sink_factory(key)
     try:
-        free = sink.free_bytes()
-        if free is not None and free - total < cfg.getint("agent", "min_free_bytes"):
-            raise JobError("not enough free disk space (free=%d, need=%d)" % (free, total))
         task.save(force=True, files_total=len(files), message="promoting")
         for name, size, handle in files:
             if job_stopped(kv, key):
                 raise Cancelled()
+            wait_for_room(cfg, kv, sink, task, key)
             with backend.open(handle, cfg.get("agent", "work_dir")) as src:
-                dst = sink.begin(name)
+                dst = sink.begin(name, min_free)
                 kept, skipped, bad = filter_stream(src, dst, earliest, latest, index_filter, job_id, tag,
                                                     target_index)
                 sink.end(kept)

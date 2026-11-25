@@ -28,10 +28,40 @@ import {
     validateSourcetype,
     validateTimeRange,
     verifySearch,
+    approxTime,
+    rangeSeconds,
+    isLongRangeToOriginalIndex,
+    LONG_RANGE_SECONDS,
 } from './promotion';
 
 const G1 = '5A8D3399-FD7B-41CB-B0A9-23CC0BCE0EF8';
 const G2 = 'BF6301FD-4484-45FA-802E-F657F1AFB5F7';
+
+describe('range length', () => {
+    const NOW = 1795068000;
+    test('reads epochs and relative times', () => {
+        expect(approxTime('1795068000', NOW)).toBe(1795068000);
+        expect(approxTime(1795068000.5, NOW)).toBe(1795068000.5);
+        expect(approxTime('now', NOW)).toBe(NOW);
+        expect(approxTime('@h', NOW)).toBe(NOW);
+        expect(approxTime('-24h@h', NOW)).toBe(NOW - 86400);
+        expect(approxTime('-30d@d', NOW)).toBe(NOW - 30 * 86400);
+        expect(approxTime('-1mon', NOW)).toBe(NOW - 30 * 86400);
+        expect(approxTime('-w', NOW)).toBe(NOW - 7 * 86400);
+        expect(approxTime('-5parsecs', NOW)).toBeNull();
+    });
+
+    test('range length and the long-range warning', () => {
+        expect(rangeSeconds('-24h@h', '@h', NOW)).toBe(86400);
+        expect(rangeSeconds('-30d@d', 'now', NOW)).toBe(30 * 86400);
+        expect(rangeSeconds('garbage', 'now', NOW)).toBeNull();
+        expect(isLongRangeToOriginalIndex(LONG_RANGE_SECONDS, '')).toBe(false);
+        expect(isLongRangeToOriginalIndex(LONG_RANGE_SECONDS + 1, '')).toBe(true);
+        expect(isLongRangeToOriginalIndex(LONG_RANGE_SECONDS + 1, ' ')).toBe(true);
+        expect(isLongRangeToOriginalIndex(LONG_RANGE_SECONDS + 1, 'promoted')).toBe(false);
+        expect(isLongRangeToOriginalIndex(null, '')).toBe(false);
+    });
+});
 
 describe('validation and SPL builders', () => {
     test('sourcetype', () => {

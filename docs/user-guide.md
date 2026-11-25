@@ -22,6 +22,7 @@ To promote data you need the `promotion_user` role. Ask your Splunk admin if you
    - **Agents**: the sites to promote from. Search by hostname or GUID. Leave it empty for all agents.
    - **Index filter**: only events whose original index matches, for example `os_*`. The list suggests the indexes the agents have seen for that sourcetype.
    - **Destination index**: send every event to this index instead of its original one. The index must already exist on the indexers.
+     For ranges longer than three days, the page suggests one. Old events sent back to an index that also takes live data make its buckets span weeks, which slows searches there.
 5. Press **Promote**.
 
 Each agent that holds matching data reads its own files, keeps only the events inside your range, and sends them to Splunk. You can follow the job on the **Jobs** tab.

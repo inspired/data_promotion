@@ -22,6 +22,8 @@ import {
     validateSourcetype,
     validateTargetIndex,
     validateTimeRange,
+    isLongRangeToOriginalIndex,
+    rangeSeconds,
 } from '../lib/promotion';
 import { ButtonSlot, Field, Row, Stack } from './Layout';
 
@@ -131,6 +133,23 @@ export function TargetIndexNotice({ value }) {
         <Message type="warning">
             {`Every promoted event goes to the index ${v}. That index must already exist on the indexers: `}
             {'events sent to an index that does not exist are dropped (or go to the last chance index, if one is set).'}
+        </Message>
+    );
+}
+
+/**
+ * Shown for long ranges with no destination index: old events would share hot buckets with
+ * live data in their original index.
+ */
+export function LongRangeNotice({ seconds, targetIndex }) {
+    if (!isLongRangeToOriginalIndex(seconds, targetIndex)) return null;
+    const days = Math.round(seconds / 86400);
+    return (
+        <Message type="warning">
+            {`This range covers about ${days} days, and its events go back to their original index. `}
+            {'If that index also takes live data, the old events end up in the same buckets as today\'s, '}
+            {'and those buckets then span weeks: searches there get slower and data is kept longer. '}
+            {'For long ranges, set a destination index used only for promotions.'}
         </Message>
     );
 }
@@ -259,6 +278,7 @@ export default function NewPromotion({ catalog, forwarders, onSubmitted, onOpenT
                         </ButtonSlot>
                     </Row>
                     <TargetIndexNotice value={targetIndex} />
+                    <LongRangeNotice seconds={rangeSeconds(earliest, latest)} targetIndex={targetIndex} />
                     {result && (
                         <Message type={result.type} onRequestRemove={() => setResult(null)}>
                             {result.text}

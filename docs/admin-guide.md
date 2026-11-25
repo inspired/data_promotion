@@ -64,7 +64,7 @@ sequenceDiagram
 1. **Submit.** The page, or the `promote_submit` macro, writes a job to the `promotion_jobs` collection and counts how many agents hold matching data.
 2. **Pick up.** Every agent whose edge archive holds data for the job writes its own task to `promotion_tasks`. Agents never overwrite each other's records.
 3. **Select and filter.** The agent picks files by day directory and the hours in their names, plus neighbouring files for late-arriving events. It keeps only events whose own timestamp is inside the range and whose index matches the filter, and adds `promote_job=<id>` (and the destination index, if set).
-4. **Send.** The filtered files are moved into `$SPLUNK_HOME/var/spool/splunk/promotion/<job>/` as `*.stash_hec`. Splunk's built-in `stash_hec` input reads them, and the forwarder sends them through its normal outputs. Each event keeps its sourcetype, host, source and index.
+4. **Send.** The filtered files are moved into `$SPLUNK_HOME/var/spool/splunk/promotion/<job>/` as `*.stash_hec`. Splunk's built-in `stash_hec` input reads them, and the forwarder sends them through its normal outputs. Each event keeps its sourcetype, host, source and index. Staged files are uncompressed, so the agent stays at most `max_staged_bytes` ahead of the input: before each file it waits until the forwarder has sent enough of what is already staged.
 5. **Track.** The **Promotion - Track indexing** search on the Search Head runs every minute. It rolls the tasks up into the job and counts the indexed events per `promote_job`, until every event is searchable.
 
 Agents never search and never change the job itself; the Search Head owns the job status.
@@ -158,8 +158,10 @@ All settings, with defaults and explanations, are in [`TA-promotion_agent/defaul
 | `fs_root` | | Root of the Ingest Actions file system destination. |
 | `s3_uri` | | `s3://bucket/prefix` for an edge archive in S3. |
 | `aws_cli` | `/usr/local/bin/aws` | Path to the AWS CLI. |
-| `max_bytes_per_job` | 50 GiB | Most an agent reads for one job. |
-| `min_free_bytes` | 10 GiB | Disk space the agent always leaves free. |
+| `max_bytes_per_job` | 50 GiB | Most archive data (as stored, often compressed) an agent reads for one job. Over it, the task fails before reading anything. |
+| `min_free_bytes` | 10 GiB | Disk space the agent always leaves free. Checked before every file and while writing. |
+| `max_staged_bytes` | 2 GiB | Most uncompressed data waiting in the staging directory. Above it, the agent waits for the forwarder to send what is staged before it reads the next file. |
+| `staging_stall_seconds` | 1800 | Fail the task if staged data hasn't shrunk for this long while waiting. |
 | `file_slack_seconds` | 3600 | Also read files this close to the range, for late-arriving events. |
 | `catalog_interval` | 900 | Seconds between catalog refreshes. |
 | `sample_files` | 3 | Newest files per sourcetype to sample. `0` turns sampling off. |
@@ -183,6 +185,8 @@ Ingest Actions writes to each forwarder's own disk or bucket, so every such forw
 
 - **Duplicates.** Promotions go to the *original* index unless a destination index is set. Promoting a range that is still in Splunk indexes those events again; tell them apart with `promote_job`.
 - **Destination index.** It must already exist on the indexers. Splunk can't check that from the Search Head, and events for a missing index are dropped or go to `lastChanceIndex`. The index filter still matches the original index.
+- **Long ranges and buckets.** Promoted events have old timestamps. Sent to an index that also takes live data, they end up in the same hot buckets as today's events. Those buckets then cover weeks, which slows time-bounded searches and keeps data until the newest event in the bucket ages out. For more than a few days, promote into a destination index used only for promotions, with its own retention (and, if you like, `maxHotSpanSecs = 86400` for one-day buckets). The page warns when a range is longer than three days and no destination index is set.
+- **Forwarder load.** Promoted events share the forwarder's pipeline and outputs with live data. A large promotion can delay live events from that forwarder until it has been sent.
 - **License.** Promoted data counts against your ingest license.
 - **Retention.** Events older than the index's `frozenTimePeriodInSecs` are frozen almost immediately. Events older than `MAX_DAYS_AGO` (10000 days for `stash_hec`) may get their timestamps changed.
 - **Input.** The add-on adds no input of its own for promoted events. They go through Splunk's built-in `[batch://$SPLUNK_HOME/var/spool/splunk/...stash_hec]` input, the same one `collect output_format=hec` uses. Don't disable it on the forwarders.
