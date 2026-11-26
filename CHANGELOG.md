@@ -2,6 +2,18 @@
 
 Each release lists the version of the Search Head app and of the agent add-on. Download them from [Releases](../../releases).
 
+## Unreleased
+
+`promotion_control` 3.1.0 · `data_promotion_soar` 1.0.0 (new) · `TA-promotion_agent` 2.2.0 (unchanged)
+
+### Changes
+- **Splunk SOAR app.** Playbooks and analysts can list forwarders and what the edge archives hold, estimate and promote, follow, cancel and verify jobs as SOAR actions. Promote from an edge host by its hostname or GUID: a name that matches no forwarder, or several, fails the action instead of promoting more than asked. Times can be ISO 8601 or epoch milliseconds, as in artifacts. **promote data** returns the job ID at once, and **get job** says when the job is final. See [the SOAR app](soar_app/README.md).
+- **Which forwarders hold what.** `GET catalog?by=forwarder` returns one row per forwarder and sourcetype, with its hostname, days, size and time span. The SOAR app's **list data** uses it. See [REST API](docs/api.md#data-and-estimates).
+
+### Install / upgrade
+- Upgrade `promotion_control` on the Search Head to 3.1.0; the SOAR app needs it.
+- Upload `data_promotion_soar-1.0.0.tgz` in SOAR and configure an asset with the Search Head's management URL and a token of a user with the `promotion_user` role.
+
 ## 3.0.0 (2026-11-25)
 
 `promotion_control` 3.0.0 · `TA-promotion_agent` 2.2.0 (unchanged)

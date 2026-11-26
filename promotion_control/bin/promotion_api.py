@@ -7,6 +7,7 @@ the promote_data capability (checked by splunkd before the handler runs).
 
     GET  catalog                 data the forwarders hold, per sourcetype and UTC day
     GET  catalog?forwarder=<g>   one forwarder's data (rows of the agents holding its files)
+    GET  catalog?by=forwarder    per forwarder and sourcetype: days, files, bytes, time span
     GET  forwarders              every forwarder: what it holds, status, add-on version, limit
     GET  fields?sourcetype=<st>  sampled indexes and indexed field names, one row per agent
     GET  estimate                size estimate for sourcetype + range (+ forwarders)
@@ -165,6 +166,13 @@ def catalog_search(sourcetype=None):
             "max(updated_at) AS updated_at by sourcetype day" % where)
 
 
+def catalog_by_agent_search(sourcetype=None):
+    where = ' where sourcetype="%s"' % sourcetype if sourcetype else ""
+    return ("| inputlookup promotion_catalog%s "
+            "| stats dc(day) AS days sum(files) AS files sum(bytes) AS bytes min(earliest) AS earliest "
+            "max(latest) AS latest max(updated_at) AS updated_at by agent sourcetype" % where)
+
+
 def estimate_search(sourcetype, agents, earliest, latest, slack=FILE_SLACK_SECONDS):
     """Bytes each agent would read: catalog rows are per agent and UTC day; a partly
     covered day counts in proportion, widened by the file slack (agents also read
@@ -247,6 +255,46 @@ def build_forwarders(sources, agents, names, now):
         out.append(r)
     out.sort(key=lambda x: x["label"].lower())
     return out
+
+
+def catalog_by_forwarder(agg, sources, forwarders, sourcetype=None, only=()):
+    """Rows per forwarder (writer GUID) and sourcetype from the per-agent catalog totals
+    (catalog_by_agent_search). The catalog is kept per reporting agent: when an agent's
+    store holds several forwarders' archives (shared_store), the numbers are the store's."""
+    by_agent = {(str(r.get("agent") or "").upper(), r.get("sourcetype")): r for r in agg}
+    writers = {}
+    for s in sources:
+        if s.get("guid") and s.get("agent"):
+            writers.setdefault(str(s["agent"]).upper(), set()).add(str(s["guid"]).upper())
+    fwd = {f["guid"]: f for f in forwarders}
+    want = set(only)
+    rows = {}
+    for s in sources:
+        g, a = str(s.get("guid") or "").upper(), str(s.get("agent") or "").upper()
+        if not g or not a or (want and g not in want):
+            continue
+        for st in _list(s.get("sourcetypes")):
+            if sourcetype and st != sourcetype:
+                continue
+            t = by_agent.get((a, st))
+            if not t:
+                continue
+            f = fwd.get(g) or {}
+            r = rows.setdefault((g, st), {
+                "guid": g, "hostname": f.get("hostname"), "label": f.get("label") or g,
+                "status": f.get("status"), "sourcetype": st, "agents": [], "shared_store": False,
+                "days": 0, "files": 0, "bytes": 0, "earliest": None, "latest": None, "updated_at": None})
+            if a not in r["agents"]:
+                r["agents"].append(a)
+            r["shared_store"] = r["shared_store"] or len(writers.get(a, ())) > 1
+            r["days"] = max(r["days"], _int(t.get("days")) or 0)
+            r["files"] += _int(t.get("files")) or 0
+            r["bytes"] += _int(t.get("bytes")) or 0
+            for k, pick in (("earliest", min), ("latest", max), ("updated_at", max)):
+                v = _int(t.get(k))
+                if v is not None:
+                    r[k] = v if r[k] is None else pick(r[k], v)
+    return sorted(rows.values(), key=lambda r: (r["label"].lower(), r["sourcetype"]))
 
 
 def agents_for(sources, sourcetype, forwarders):
@@ -337,7 +385,18 @@ class Api:
 
     # ---- data ----
     def get_catalog(self, q, _):
+        by = str(q.get("by") or "day").strip()
+        if by not in ("day", "forwarder"):
+            raise ApiError(400, "by: use day or forwarder", "by")
         fwd = parse_forwarders(q.get("forwarder"), "forwarder")
+        if by == "forwarder":
+            st = validate_sourcetype(q["sourcetype"]) if q.get("sourcetype") else None
+            agg = self.d.search(catalog_by_agent_search(st))
+            sources = self.d.kv_query(SOURCES, fields="agent,guid,sourcetypes,days,files,bytes,earliest,latest")
+            forwarders = build_forwarders(sources, self.d.kv_query(AGENTS),
+                                          self.d.kv_query(FORWARDER_NAMES, fields="guid,hostname,last_seen"),
+                                          self.now())
+            return 200, {"items": catalog_by_forwarder(agg, sources, forwarders, st, fwd)}
         if fwd:
             srcs = self.d.kv_query(SOURCES, fields="agent,guid")
             agents = sorted({str(s["agent"]).upper() for s in srcs

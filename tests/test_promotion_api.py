@@ -185,6 +185,41 @@ class TestData(ApiBase):
         _, out = self.call("GET", "catalog", {"forwarder": GUID3.lower()})
         self.assertEqual([r["_key"] for r in out["items"]], ["a"])
 
+    def test_catalog_by_forwarder(self):
+        # GUID reports its own archive and GUID3's (shared store); GUID2 its own.
+        self.kv_put(api.SOURCES, source(GUID, GUID3, ["splunkd"]))
+        agg = [
+            {"agent": GUID, "sourcetype": "splunkd", "days": "2", "files": "48", "bytes": "900",
+             "earliest": str(H06), "latest": str(H06 + HOUR), "updated_at": "5"},
+            {"agent": GUID, "sourcetype": "access_combined", "days": "1", "files": "24", "bytes": "100",
+             "earliest": str(H06), "latest": str(H06 + HOUR), "updated_at": "5"},
+            {"agent": GUID2, "sourcetype": "splunkd", "days": "3", "files": "72", "bytes": "300",
+             "earliest": str(H06 - HOUR), "latest": str(H06), "updated_at": "6"},
+        ]
+        self.d.on_search = lambda spl, e, l, u: [r for r in agg if 'sourcetype="' not in spl or r["sourcetype"] in spl]
+        _, out = self.call("GET", "catalog", {"by": "forwarder"})
+        self.assertEqual(self.d.searches[0]["spl"], api.catalog_by_agent_search())
+        rows = [(r["hostname"], r["guid"], r["sourcetype"]) for r in out["items"]]
+        # Sorted by label, as in GET forwarders: GUID3 has no hostname, so its GUID.
+        self.assertEqual(rows, [(None, GUID3, "splunkd"), ("hf1", GUID, "access_combined"),
+                                ("hf1", GUID, "splunkd"), ("hf2", GUID2, "splunkd")])
+        hf2 = out["items"][3]
+        self.assertEqual((hf2["days"], hf2["files"], hf2["bytes"], hf2["earliest"], hf2["latest"]),
+                         (3, 72, 300, H06 - HOUR, H06))
+        self.assertEqual((hf2["agents"], hf2["shared_store"], hf2["status"]), ([GUID2], False, "stale"))
+        self.assertTrue(out["items"][0]["shared_store"])
+        self.assertTrue(out["items"][2]["shared_store"])
+
+    def test_catalog_by_forwarder_filters(self):
+        self.d.on_search = lambda spl, e, l, u: [
+            {"agent": GUID, "sourcetype": "splunkd", "days": "1"}, {"agent": GUID2, "sourcetype": "splunkd", "days": "1"}]
+        _, out = self.call("GET", "catalog", {"by": "forwarder", "sourcetype": "splunkd", "forwarder": GUID2.lower()})
+        self.assertIn('where sourcetype="splunkd"', self.d.searches[0]["spl"])
+        self.assertEqual([r["guid"] for r in out["items"]], [GUID2])
+
+    def test_catalog_by_unknown(self):
+        self.assertEqual(self.err("GET", "catalog", {"by": "host"}).field, "by")
+
     def test_fields(self):
         self.kv_put(api.FIELDS, {"_key": "f", "agent": GUID, "sourcetype": "splunkd", "indexes": ["_internal"]})
         self.kv_put(api.FIELDS, {"_key": "g", "agent": GUID, "sourcetype": "other", "indexes": ["main"]})

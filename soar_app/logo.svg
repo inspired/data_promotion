@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <title>Data Promotion</title>
+  <g fill="none" stroke="#0B6FA4" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 70 v10 h56 v-10"/>
+    <path d="M50 64 V20"/>
+    <path d="M32 38 L50 20 L68 38"/>
+  </g>
+</svg>

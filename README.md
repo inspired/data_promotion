@@ -57,7 +57,7 @@
     </td>
     <td valign="top">
       <h3>Follow every job</h3>
-      Progress per forwarder, a live count of indexed events, and <b>Open in Search</b>. Every promoted event carries <code>promote_job=&lt;job id&gt;</code>. Splunk SOAR and scripts can do it all through the <a href="docs/api.md">REST API</a>.
+      Progress per forwarder, a live count of indexed events, and <b>Open in Search</b>. Every promoted event carries <code>promote_job=&lt;job id&gt;</code>. Splunk SOAR can do it all with the <a href="soar_app/README.md">SOAR app</a>, and scripts through the <a href="docs/api.md">REST API</a>.
     </td>
   </tr>
 </table>
@@ -129,6 +129,7 @@ To run it across sites, with a Search Head and many forwarders, see the [admin g
 |---|---|
 | [**User guide**](docs/user-guide.md) | Promote data, use the timeline and follow jobs. |
 | [**REST API**](docs/api.md) | Promote from Splunk SOAR, scripts and other tools. |
+| [**SOAR app**](soar_app/README.md) | Promote from SOAR playbooks, e.g. from an edge host when an IOC matches. |
 | [**Admin guide**](docs/admin-guide.md) | Install, connect forwarders, Ingest Actions rules, settings and limits. |
 | [**Changelog**](CHANGELOG.md) | What changed in every release. |
 
@@ -138,6 +139,7 @@ To run it across sites, with a Search Head and many forwarders, see the [admin g
 |---|---|
 | `promotion_control` | The Search Head. On a search head cluster, through the deployer. |
 | `TA-promotion_agent` | Every Heavy Forwarder that writes Ingest Actions output to a file system or S3. Deploy it with the Deployment Server. |
+| `data_promotion_soar` | Optional: Splunk SOAR, to promote from playbooks. Upload the `.tgz` under **Apps**. See [the SOAR app](soar_app/README.md). |
 
 On an all-in-one instance, install both on the same server.
 
@@ -147,6 +149,7 @@ On an all-in-one instance, install both on the same server.
 cd ui && npm ci && npm run package          # dist/promotion_control-<version>.spl
 cd .. && COPYFILE_DISABLE=1 tar --no-xattrs -czf dist/TA-promotion_agent-<version>.spl TA-promotion_agent
 python3 -m unittest discover -s tests       # add-on tests
+(cd soar_app && uv run pytest && uv run soarapps package build -o ../dist/data_promotion_soar-1.0.0.tgz)   # SOAR app
 (cd ui && npm test)                         # UI tests
 ```
 

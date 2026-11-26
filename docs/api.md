@@ -28,7 +28,7 @@ Request bodies are JSON (`Content-Type: application/json`); form-encoded bodies 
 
 | Method | Path | Does |
 |---|---|---|
-| `GET` | `catalog` | What the edge archives hold, per sourcetype and UTC day. `?sourcetype=` for one; `?forwarder=<GUID>` for one forwarder's rows. |
+| `GET` | `catalog` | What the edge archives hold, per sourcetype and UTC day. `?sourcetype=` for one; `?forwarder=<GUID>` for one forwarder's rows; `?by=forwarder` for one row per forwarder and sourcetype. |
 | `GET` | `forwarders` | Every forwarder: what it holds, status, add-on version and size limit. `?sourcetype=` for those that hold it. |
 | `GET` | `fields?sourcetype=<st>` | Indexes and indexed fields seen in sampled events, one row per forwarder. |
 | `GET` | `estimate` | Size of a promotion before you create it. |
@@ -130,6 +130,19 @@ A row of `GET forwarders`:
 
 `status` is `reporting`, `stale` (no heartbeat for 15 minutes) or `unregistered`.
 
+`GET catalog?by=forwarder` says which forwarders hold which sourcetypes: one row per forwarder and sourcetype, sorted by forwarder. Narrow it with `?sourcetype=` and `?forwarder=<GUIDs>`. Added in 3.1.0.
+
+```json
+{
+  "guid": "5A8D3399-FD7B-41CB-B0A9-23CC0BCE0EF8", "hostname": "hf-osl-0001", "label": "hf-osl-0001",
+  "status": "reporting", "sourcetype": "pan:traffic", "days": 30, "files": 720, "bytes": 412000000000,
+  "earliest": 1793491200, "latest": 1796083200, "updated_at": 1796083100,
+  "agents": ["5A8D3399-FD7B-41CB-B0A9-23CC0BCE0EF8"], "shared_store": false
+}
+```
+
+The catalog is kept per add-on that reports it. When one add-on reports a store that holds several forwarders' archives, `shared_store` is true and the numbers are those of the whole store.
+
 ## Errors
 
 Errors have a status code and a JSON body; `field` names the request field at fault, when there is one:
@@ -149,7 +162,9 @@ Errors have a status code and a JSON body; `field` names the request field at fa
 
 ## Splunk SOAR
 
-Use the **HTTP** app with an asset for the Search Head:
+Use the **Data Promotion** app for SOAR (`data_promotion_soar-<version>.tgz` in the [latest release](../../../releases/latest)). It has an action for each endpoint, takes hostnames as well as forwarder GUIDs, and documents a playbook that promotes from an edge host when an IOC matches. See [its README](../soar_app/README.md).
+
+Without the app, use the **HTTP** app with an asset for the Search Head:
 
 - **base_url**: `https://sh1.example.com:8089/services/data_promotion`
 - **auth**: a token of the SOAR service account (role `promotion_user`), sent as `Authorization: Bearer <token>`
