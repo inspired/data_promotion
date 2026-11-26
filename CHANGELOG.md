@@ -2,7 +2,7 @@
 
 Each release lists the version of the Search Head app and of the agent add-on. Download them from [Releases](../../releases).
 
-## Unreleased
+## 3.1.0 (2026-11-26)
 
 `promotion_control` 3.1.0 · `data_promotion_soar` 1.0.0 (new) · `TA-promotion_agent` 2.2.0 (unchanged)
 

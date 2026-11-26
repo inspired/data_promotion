@@ -1,3 +1,1 @@
 **Unreleased**
-
-* First release: list forwarders, list data, estimate promotion, promote data, get job, get job tasks, list jobs, cancel job and verify job, for Data Promotion (`promotion_control` 3.1.0 or later).
