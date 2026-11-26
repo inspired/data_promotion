@@ -141,7 +141,7 @@ A row of `GET forwarders`:
 }
 ```
 
-The catalog is kept per add-on that reports it. When one add-on reports a store that holds several forwarders' archives, `shared_store` is true and the numbers are those of the whole store.
+In every catalog response, `updated_at` is when the forwarder(s) behind a row last published their catalog (since 3.2.0). The catalog is kept per add-on that reports it. When one add-on reports a store that holds several forwarders' archives, `shared_store` is true and the numbers are those of the whole store.
 
 ## Errors
 

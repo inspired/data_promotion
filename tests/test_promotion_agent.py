@@ -61,6 +61,9 @@ class FakeKV:
         for r in self.query(coll, query):
             del self._c(coll)[r["_key"]]
 
+    def delete_key(self, coll, key):
+        self._c(coll).pop(key, None)
+
 
 def event(t, index="_internal", st="splunkd", fields=True):
     ev = {"time": t, "event": "msg at %s" % t, "host": "h1",
@@ -505,6 +508,157 @@ class TestCatalog(Base):
         self.cfg.cp.set("agent", "max_bytes_per_job", "1234")
         ra.heartbeat(self.kv, self.cfg, AGENT)
         self.assertEqual(self.kv.get(ra.AGENTS, GUID)["max_bytes_per_job"], 1234)
+
+
+class RecordingKV(FakeKV):
+    """FakeKV that counts catalog writes and deletes."""
+
+    def __init__(self):
+        super().__init__()
+        self.saved, self.deleted_keys = [], []
+
+    def batch_save(self, coll, recs):
+        if coll == ra.CATALOG:
+            self.saved += [r["_key"] for r in recs]
+        super().batch_save(coll, recs)
+
+    def delete_key(self, coll, key):
+        self.deleted_keys.append(key)
+        super().delete_key(coll, key)
+
+
+class CountingBackend(ra.FilesystemBackend):
+    def __init__(self, root):
+        super().__init__(root)
+        self.walks = []
+
+    def walk(self, days=None):
+        self.walks.append(None if days is None else sorted(d.isoformat() for d in days))
+        return super().walk(days)
+
+
+class TestIncrementalCatalog(Base):
+    # H06 is 2026-11-19 06:00 UTC; "now" is the next day, so 11-19 and 11-20 are recent.
+    NOW = H06 + 24 * HOUR
+    OLD = H06 - 5 * 24 * HOUR  # 2026-11-14
+
+    def setUp(self):
+        super().setUp()
+        self.kv = RecordingKV()
+        self.backend = CountingBackend(self.dumps)
+
+    def publish(self, cache, now=None, recent=2, full_every=86400):
+        out = ra.publish_catalog(self.kv, self.backend, AGENT, 2, cache, recent, full_every,
+                                 now or self.NOW)
+        self.kv.saved = []
+        return out
+
+    def keys(self):
+        return sorted(k.split("|", 1)[1] for k in self.kv.data[ra.CATALOG])
+
+    def test_first_publish_is_a_full_scan(self):
+        self.write_hour(self.OLD, [event(self.OLD + 1)])
+        _, totals, _, cache = ra.publish_catalog(self.kv, self.backend, AGENT, 2, None, 2, 86400, self.NOW)
+        self.assertEqual(self.backend.walks, [None])
+        self.assertEqual(self.kv.saved, ["%s|splunkd|2026-11-14" % GUID])
+        self.assertEqual((cache["full_at"], totals["files"]), (self.NOW, 1))
+
+    def test_later_publish_lists_only_recent_days_and_writes_only_changes(self):
+        self.write_hour(self.OLD, [event(self.OLD + 1)])
+        self.write_hour(H06, [event(H06 + 1)])
+        cache = self.publish(None)[3]
+        self.write_hour(H06 + HOUR, [event(H06 + HOUR + 1)])
+        served, totals, newest, cache = ra.publish_catalog(
+            self.kv, self.backend, AGENT, 2, cache, 2, 86400, self.NOW + 900)
+        self.assertEqual(self.backend.walks[-1], ["2026-11-19", "2026-11-20"])
+        self.assertEqual(self.kv.saved, ["%s|splunkd|2026-11-19" % GUID])
+        self.assertEqual(self.keys(), ["splunkd|2026-11-14", "splunkd|2026-11-19"])
+        self.assertEqual(self.kv.get(ra.CATALOG, "%s|splunkd|2026-11-19" % GUID)["files"], 2)
+        # Old days still count towards the forwarder totals and sampling.
+        self.assertEqual((totals["files"], served), (3, {GUID: ["splunkd"]}))
+        self.assertEqual(len(newest["splunkd"]), 2)
+        self.assertEqual(self.kv.get(ra.SOURCES, "%s|%s" % (GUID, GUID))["days"], 2)
+
+    def test_unchanged_store_writes_no_catalog_rows(self):
+        self.write_hour(H06, [event(H06 + 1)])
+        cache = self.publish(None)[3]
+        ra.publish_catalog(self.kv, self.backend, AGENT, 2, cache, 2, 86400, self.NOW + 900)
+        self.assertEqual(self.kv.saved, [])
+
+    def test_removed_recent_partition_is_deleted(self):
+        name = self.write_hour(H06, [event(H06 + 1)], st="gone")
+        self.write_hour(self.OLD, [event(self.OLD + 1)])
+        cache = self.publish(None)[3]
+        p = os.path.join(self.dumps, "year=2026", "month=11", "day=19", "sourcetype=gone", name)
+        os.remove(p)
+        _, _, newest, _ = self.publish(cache, now=self.NOW + 900)
+        self.assertEqual(self.kv.deleted_keys, ["%s|gone|2026-11-19" % GUID])
+        self.assertEqual(self.keys(), ["splunkd|2026-11-14"])
+        self.assertNotIn("gone", newest)
+
+    def test_full_scan_when_due_and_repairs_lost_rows(self):
+        self.write_hour(self.OLD, [event(self.OLD + 1)])
+        cache = self.publish(None)[3]
+        self.kv.data[ra.CATALOG].clear()
+        self.publish(cache, now=self.NOW + 900)
+        self.assertEqual(self.kv.data[ra.CATALOG], {})  # incremental: old day not rewritten
+        self.publish(cache, now=self.NOW + 86400)
+        self.assertEqual(self.backend.walks[-1], None)
+        self.assertEqual(self.keys(), ["splunkd|2026-11-14"])
+
+    def test_full_scan_when_cache_is_from_another_agent_or_disabled(self):
+        self.write_hour(H06, [event(H06 + 1)])
+        cache = self.publish(None)[3]
+        self.publish(dict(cache, agent=GUID2), now=self.NOW + 900)
+        self.publish(cache, now=self.NOW + 900, recent=0)
+        self.assertEqual(self.backend.walks, [None, None, None])
+
+    def test_full_scan_when_archive_location_changed(self):
+        self.write_hour(self.OLD, [event(self.OLD + 1)])
+        cache = self.publish(None)[3]
+        moved = os.path.join(self.tmp.name, "dumps2")
+        self.dumps = moved
+        self.write_hour(self.OLD - 24 * HOUR, [event(self.OLD - 24 * HOUR + 1)], st="other")
+        self.backend = CountingBackend(moved)
+        self.publish(cache, now=self.NOW + 900)
+        self.assertEqual(self.backend.walks, [None])
+        self.assertEqual(self.keys(), ["other|2026-11-13"])
+
+    def test_cache_location_is_the_archive(self):
+        self.assertEqual(self.publish(None)[3]["location"], "file://" + os.path.realpath(self.dumps))
+        self.assertEqual(ra.S3Backend("s3://bucket/dump/").location, "s3://bucket/dump")
+
+    def test_run_once_keeps_cache_in_work_dir(self):
+        self.write_hour(self.OLD, [event(self.OLD + 1)])
+        self.cfg.cp.set("agent", "sample_files", "0")
+        state = ra.run_once(self.cfg, self.kv, self.backend, AGENT, {}, self.sink, now=self.NOW)
+        path = os.path.join(self.cfg.get("agent", "work_dir"), ".catalog.json")
+        self.assertEqual(ra.load_state(path)["full_at"], self.NOW)
+        state["catalog_at"] = 0
+        ra.run_once(self.cfg, self.kv, self.backend, AGENT, state, self.sink, now=self.NOW + 900)
+        self.assertEqual(self.backend.walks, [None, ["2026-11-19", "2026-11-20"]])
+
+
+class TestS3Walk(unittest.TestCase):
+    def test_recent_days_list_day_prefixes_only(self):
+        from unittest import mock
+        b = ra.S3Backend("s3://bucket/dump")
+        key = "dump/year=2026/month=11/day=19/sourcetype=splunkd/events_1795071600_1795068000_0_000000_%s.ndjson.gz" % GUID
+        listed = []
+
+        def fake_list(prefix):
+            listed.append(prefix)
+            return [{"Key": key, "Size": 7}] if prefix.startswith("dump/year=2026/month=11/day=19") else []
+        with mock.patch.object(b, "_list", fake_list):
+            out = list(b.walk([datetime.date(2026, 11, 19)]))
+        self.assertEqual(listed, ["dump/year=2026/month=11/day=19/"])
+        self.assertEqual([(st, d.isoformat(), size) for st, d, _, size, _ in out],
+                         [("splunkd", "2026-11-19", 7)])
+        listed.clear()
+        with mock.patch.object(b, "_list", fake_list):
+            list(b.walk([datetime.date(2026, 1, 5)]))
+        self.assertEqual(listed, ["dump/year=2026/month=01/day=05/", "dump/year=2026/month=01/day=5/",
+                                  "dump/year=2026/month=1/day=05/", "dump/year=2026/month=1/day=5/"])
 
 
 class TestFieldSampling(Base):

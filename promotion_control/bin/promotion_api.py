@@ -163,7 +163,7 @@ def catalog_search(sourcetype=None):
     return ("| inputlookup promotion_catalog%s "
             "| stats sum(files) AS files sum(bytes) AS bytes min(earliest) AS earliest "
             "max(latest) AS latest sum(forwarders) AS forwarders dc(agent) AS agents "
-            "max(updated_at) AS updated_at by sourcetype day" % where)
+            "values(agent) AS agent_list max(updated_at) AS updated_at by sourcetype day" % where)
 
 
 def catalog_by_agent_search(sourcetype=None):
@@ -255,6 +255,17 @@ def build_forwarders(sources, agents, names, now):
         out.append(r)
     out.sort(key=lambda x: x["label"].lower())
     return out
+
+
+def with_catalog_time(rows, times, field="agent"):
+    """Set each catalog row's updated_at to the newest catalog publish of its agent(s)
+    (field holds one GUID or a list), keeping the row's own value when none is known."""
+    for r in rows:
+        ts = [times.get(str(a).upper()) for a in _list(r.get(field))]
+        ts = [t for t in ts if t]
+        if ts:
+            r["updated_at"] = max(ts)
+    return rows
 
 
 def catalog_by_forwarder(agg, sources, forwarders, sourcetype=None, only=()):
@@ -384,6 +395,12 @@ class Api:
         raise ApiError(404, "no such endpoint")
 
     # ---- data ----
+    def catalog_times(self):
+        """{agent GUID: when it last published its catalog}. Agents (2.3.0+) only rewrite
+        catalog rows that changed, so a row's own updated_at is when it last changed."""
+        return {str(a.get("guid") or a.get("_key") or "").upper(): _int(a.get("catalog_at"))
+                for a in self.d.kv_query(AGENTS, fields="_key,guid,catalog_at")}
+
     def get_catalog(self, q, _):
         by = str(q.get("by") or "day").strip()
         if by not in ("day", "forwarder"):
@@ -391,7 +408,7 @@ class Api:
         fwd = parse_forwarders(q.get("forwarder"), "forwarder")
         if by == "forwarder":
             st = validate_sourcetype(q["sourcetype"]) if q.get("sourcetype") else None
-            agg = self.d.search(catalog_by_agent_search(st))
+            agg = with_catalog_time(self.d.search(catalog_by_agent_search(st)), self.catalog_times())
             sources = self.d.kv_query(SOURCES, fields="agent,guid,sourcetypes,days,files,bytes,earliest,latest")
             forwarders = build_forwarders(sources, self.d.kv_query(AGENTS),
                                           self.d.kv_query(FORWARDER_NAMES, fields="guid,hostname,last_seen"),
@@ -406,9 +423,12 @@ class Api:
                 rows += self.d.kv_query(CATALOG, {"agent": a},
                                         fields="agent,sourcetype,day,files,bytes,earliest,latest,"
                                                "forwarders,updated_at")
-            return 200, {"items": [public(r) for r in rows]}
+            return 200, {"items": with_catalog_time([public(r) for r in rows], self.catalog_times())}
         st = validate_sourcetype(q["sourcetype"]) if q.get("sourcetype") else None
-        return 200, {"items": self.d.search(catalog_search(st))}
+        rows = with_catalog_time(self.d.search(catalog_search(st)), self.catalog_times(), "agent_list")
+        for r in rows:
+            r.pop("agent_list", None)
+        return 200, {"items": rows}
 
     def get_forwarders(self, q, _):
         sources = self.d.kv_query(SOURCES, fields="agent,guid,sourcetypes,days,files,bytes,earliest,latest")
@@ -600,16 +620,27 @@ class Splunkd:
     def _kv(self, coll, suffix=""):
         return "/servicesNS/nobody/%s/storage/collections/data/%s%s" % (APP, coll, suffix)
 
+    # Below the KV store's max_rows_per_query (limits.conf, default 50000), which would
+    # otherwise cut a larger result short without an error.
+    KV_PAGE = 10000
+
     def kv_query(self, coll, query=None, sort=None, limit=None, fields=None):
+        """Rows matching query; all of them (page by page) unless limit is given."""
         params = {"output_mode": "json"}
         if query:
             params["query"] = json.dumps(query)
         if sort:
             params["sort"] = sort
-        params["limit"] = str(limit or 0)
         if fields:
             params["fields"] = fields
-        return self._call("GET", self._kv(coll), params) or []
+        rows = []
+        while True:
+            want = self.KV_PAGE if not limit else min(self.KV_PAGE, limit - len(rows))
+            page = self._call("GET", self._kv(coll), dict(params, limit=str(want),
+                                                          skip=str(len(rows)))) or []
+            rows += page
+            if len(page) < want or (limit and len(rows) >= limit):
+                return rows[:limit] if limit else rows
 
     def kv_get(self, coll, key):
         return self._call("GET", self._kv(coll, "/" + urllib.parse.quote(key, safe="")),

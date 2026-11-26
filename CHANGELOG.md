@@ -2,6 +2,22 @@
 
 Each release lists the version of the Search Head app and of the agent add-on. Download them from [Releases](../../releases).
 
+## 3.2.0 (2026-11-26)
+
+`promotion_control` 3.2.0 · `TA-promotion_agent` 2.3.0 · `data_promotion_soar` 1.0.0 (unchanged)
+
+### Changes
+- **Archives with years of data.** The add-on no longer lists the whole edge archive every 15 minutes. It lists the last two UTC days and takes older days from a local cache (`.catalog.json` in `work_dir`), and it writes only the catalog rows that changed, so a quiet archive costs the Search Head's KV store nothing. Once a day it lists the whole archive and rewrites every row, and also right away when `fs_root` or `s3_uri` points somewhere else. Changes to older days, such as late data or files removed by retention, show after that daily scan. New settings `catalog_recent_days` and `catalog_full_scan_interval`; see [Settings](docs/admin-guide.md).
+- **Indexed catalog.** `promotion_catalog` is indexed by forwarder and by sourcetype and day.
+
+### Fixes
+- **Large catalogs are read in full.** The REST API read KV store collections in one request, which the KV store cuts off at `max_rows_per_query` (50,000 by default) without an error. A forwarder holding more rows than that showed only part of its catalog. It now reads page by page.
+- **"Catalog updated" stays accurate.** Since rows that didn't change are no longer rewritten, the catalog's `updated_at` is now when the forwarder last published its catalog, not when the row was last written.
+
+### Install / upgrade
+- Upgrade `promotion_control` on the Search Head first, then `TA-promotion_agent` on the forwarders. The first run after the upgrade lists the whole archive, as before.
+- Restart the Search Head (new `collections.conf` indexes).
+
 ## 3.1.0 (2026-11-26)
 
 `promotion_control` 3.1.0 · `data_promotion_soar` 1.0.0 (new) · `TA-promotion_agent` 2.2.0 (unchanged)

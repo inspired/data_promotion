@@ -20,6 +20,11 @@ staging_stall_seconds = <integer>
 * Fail the task if staged data has not shrunk for this long while waiting.
 staging_poll_seconds = <integer>
 catalog_interval = <integer>
+catalog_recent_days = <integer>
+* UTC days, up to today, listed again at each catalog publish; older days come from the
+  cache in work_dir/.catalog.json. 0 lists the whole archive every time.
+catalog_full_scan_interval = <integer>
+* Seconds between listings of the whole archive, which also rewrite every catalog row.
 sample_files = <integer>
 * Newest files per sourcetype whose first events are sampled with each catalog publish.
   0 turns field sampling off.

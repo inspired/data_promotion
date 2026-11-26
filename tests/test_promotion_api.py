@@ -217,6 +217,23 @@ class TestData(ApiBase):
         self.assertIn('where sourcetype="splunkd"', self.d.searches[0]["spl"])
         self.assertEqual([r["guid"] for r in out["items"]], [GUID2])
 
+    def test_catalog_updated_at_is_the_agents_last_publish(self):
+        self.d.kv.data[api.AGENTS][GUID]["catalog_at"] = 700
+        self.d.kv.data[api.AGENTS][GUID2]["catalog_at"] = 800
+        self.d.on_search = lambda spl, e, l, u: [
+            {"sourcetype": "splunkd", "day": "d1", "agent_list": [GUID, GUID2], "updated_at": "5"},
+            {"sourcetype": "other", "day": "d1", "agent_list": "UNKNOWN-AGENT", "updated_at": "5"}]
+        _, out = self.call("GET", "catalog")
+        self.assertEqual([(r["updated_at"], "agent_list" in r) for r in out["items"]], [(800, False), ("5", False)])
+
+        self.kv_put(api.CATALOG, {"_key": "a", "agent": GUID, "sourcetype": "splunkd", "day": "d1", "updated_at": 5})
+        _, out = self.call("GET", "catalog", {"forwarder": GUID})
+        self.assertEqual(out["items"][0]["updated_at"], 700)
+
+        self.d.on_search = lambda spl, e, l, u: [{"agent": GUID2, "sourcetype": "splunkd", "days": "1", "updated_at": "5"}]
+        _, out = self.call("GET", "catalog", {"by": "forwarder"})
+        self.assertEqual(out["items"][0]["updated_at"], 800)
+
     def test_catalog_by_unknown(self):
         self.assertEqual(self.err("GET", "catalog", {"by": "host"}).field, "by")
 
@@ -444,6 +461,29 @@ class TestSplunkd(unittest.TestCase):
         self.assertEqual((q["query"], q["sort"], q["limit"], q["fields"]),
                          ('{"status": "pending"}', "submitted_at:-1", "5", "a,b"))
         self.assertEqual(r.get_header("Authorization"), "Splunk ST")
+
+    def test_kv_query_pages_past_max_rows(self):
+        pages = [[{"_key": str(i)} for i in range(3)], [{"_key": "3"}]]
+
+        def urlopen(req, timeout=None, context=None):
+            self.reqs.append(req)
+            return FakeResponse(json.dumps(pages.pop(0)).encode())
+        with mock.patch.object(api.urllib.request, "urlopen", urlopen), \
+                mock.patch.object(api.Splunkd, "KV_PAGE", 3):
+            rows = self.d.kv_query(api.CATALOG, {"agent": "a"})
+        self.assertEqual([r["_key"] for r in rows], ["0", "1", "2", "3"])
+        qs = [dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(r.full_url).query)) for r in self.reqs]
+        self.assertEqual([(q["skip"], q["limit"]) for q in qs], [("0", "3"), ("3", "3")])
+
+    def test_kv_query_limit_stops_early(self):
+        def urlopen(req, timeout=None, context=None):
+            self.reqs.append(req)
+            return FakeResponse(json.dumps([{"_key": "x"}] * 3).encode())
+        with mock.patch.object(api.urllib.request, "urlopen", urlopen), \
+                mock.patch.object(api.Splunkd, "KV_PAGE", 3):
+            self.assertEqual(len(self.d.kv_query(api.JOBS, limit=5)), 5)
+        qs = [dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(r.full_url).query)) for r in self.reqs]
+        self.assertEqual([(q["skip"], q["limit"]) for q in qs], [("0", "3"), ("3", "2")])
 
     def test_kv_save(self):
         with self.answer(["j1"]):

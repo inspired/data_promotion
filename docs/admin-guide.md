@@ -37,7 +37,7 @@ There are two apps:
 
 Each forwarder tells the Search Head what its edge archive holds, but never sends event contents until you promote them:
 
-- **Catalog**: files, bytes and time span per sourcetype and UTC day. Refreshed every 15 minutes.
+- **Catalog**: files, bytes and time span per sourcetype and UTC day. Refreshed every 15 minutes from the last two UTC days; the whole archive is listed again once a day. Changes to older days (late data, files removed by retention, old files copied into the archive) show after that daily scan; a new forwarder, or a changed `fs_root` or `s3_uri`, gets a full scan at once. To scan at once otherwise, delete `.catalog.json` in the add-on's `work_dir`.
 - **Field sample**: from the first events of the newest files per sourcetype, the indexes, hosts, sources and indexed field *names* seen there. The page uses them to suggest index filters. Field values and event text are never sent.
 - **Heartbeat**: hostname, versions, backend, totals and `max_bytes_per_job`. Every 5 minutes.
 
@@ -149,7 +149,7 @@ If the edge archive is written *before* filter or drop rules (a full copy), give
 
 As a safety net, the add-on skips archived events that already carry `promote_job`, so an event written back by mistake is never promoted a second time.
 
-To check a ruleset: promote one hour of a sourcetype from one forwarder, and wait for the next catalog refresh after the job is `completed`. The file count for that day on **Available data** must not have grown.
+To check a ruleset: promote one hour of a sourcetype from one forwarder, and wait for the next full catalog scan after the job is `completed` (promoted events keep their own time, so they would land in an older day; to scan at once, delete `.catalog.json` in the add-on's `work_dir`). The file count for that day on **Available data** must not have grown.
 
 ## Add-on settings
 
@@ -167,6 +167,8 @@ All settings, with defaults and explanations, are in [`TA-promotion_agent/defaul
 | `staging_stall_seconds` | 1800 | Fail the task if staged data hasn't shrunk for this long while waiting. |
 | `file_slack_seconds` | 3600 | Also read files this close to the range, for late-arriving events. |
 | `catalog_interval` | 900 | Seconds between catalog refreshes. |
+| `catalog_recent_days` | 2 | UTC days, up to today, listed again at each refresh. Older days come from the add-on's cache. `0` lists the whole archive every time. |
+| `catalog_full_scan_interval` | 86400 | Seconds between listings of the whole archive. Each one also rewrites every catalog row on the Search Head. |
 | `sample_files` | 3 | Newest files per sourcetype to sample. `0` turns sampling off. |
 | `sample_lines` | 200 | Events read from each sampled file. |
 | `sample_bytes` | 1 MiB | S3 only: most bytes fetched from a sampled object. |
@@ -182,6 +184,7 @@ Ingest Actions writes to each forwarder's own disk or bucket, so every such forw
 - **Identity.** Each forwarder reads its server GUID and name and registers itself. Forwarders that never registered are named from indexer metrics by the hourly **Promotion - Forwarder names** search.
 - **Targeting.** A job selects all forwarders or a list of GUIDs. Only forwarders that hold matching data take part.
 - **Progress.** A job is `running` until every expected forwarder has finished. Forwarders that fail or don't report within 30 minutes make it `incomplete`, with the reason.
+- **Catalog size.** The catalog has a row per forwarder, sourcetype and UTC day, so years of data across many sourcetypes reach hundreds of thousands of rows. Between daily full scans a forwarder lists only the newest days and writes only rows that changed, so a quiet archive costs the KV store nothing and S3 a few listings. The cache behind this is `.catalog.json` in `work_dir`, a few MB per 20,000 days × sourcetypes.
 - **Load.** Every forwarder checks the Search Head KV store for jobs once per scripted-input interval (30 seconds). With thousands of forwarders, set `interval = 60` for `[script://./bin/promotion_agent.py]` in the add-on's `local/inputs.conf`.
 
 ## Limits and things to know

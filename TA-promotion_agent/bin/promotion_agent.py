@@ -10,7 +10,9 @@ Runs as a Splunk scripted input (passAuth = splunk-system-user). Each run:
      registers in the Search Head KV store (promotion_agents).
   3. Publishes what it can promote (promotion_catalog, promotion_sources), every
      `catalog_interval` seconds. Rows are keyed by this agent's GUID, so agents never
-     overwrite each other.
+     overwrite each other. Between full scans (`catalog_full_scan_interval`) only the
+     newest `catalog_recent_days` UTC days are listed again; older days come from a local
+     cache (.catalog.json in work_dir), and only rows that changed are written.
      With the catalog it samples the head of the newest files per sourcetype and
      publishes the indexes, hosts, sources and indexed field names seen there
      (promotion_fields). Event contents are never published.
@@ -39,6 +41,7 @@ import datetime
 import fcntl
 import fnmatch
 import gzip
+import hashlib
 import json
 import logging
 import logging.handlers
@@ -121,6 +124,8 @@ DEFAULTS = {
         "staging_stall_seconds": "1800",
         "staging_poll_seconds": "5",
         "catalog_interval": "900",
+        "catalog_recent_days": "2",
+        "catalog_full_scan_interval": "86400",
         "sample_files": "3",
         "sample_lines": "200",
         "sample_bytes": "1048576",
@@ -301,6 +306,13 @@ class KVStore:
     def delete(self, coll, query):
         return self._do("DELETE", self._url(coll, params={"query": json.dumps(query)}))
 
+    def delete_key(self, coll, key):
+        try:
+            return self._do("DELETE", self._url(coll, key))
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+
 
 # --------------------------------------------------------------------------- #
 # Storage backends
@@ -365,6 +377,11 @@ class FilesystemBackend:
     def __init__(self, root):
         self.root = root
 
+    @property
+    def location(self):
+        """Identifies the archive, so a cache from another archive is never reused."""
+        return "file://" + os.path.realpath(self.root)
+
     def list_partition(self, day, sourcetype):
         """Return [(name, size, handle)] for one day/sourcetype partition."""
         out = []
@@ -391,8 +408,9 @@ class FilesystemBackend:
         with open_ndjson(handle) as f:
             yield f
 
-    def walk(self):
-        """Yield (sourcetype, date, name, size, handle) for every file."""
+    def walk(self, days=None):
+        """Yield (sourcetype, date, name, size, handle) for every file, or only for the
+        files of the given UTC days."""
         def subdirs(path, kind):
             try:
                 names = os.listdir(path)
@@ -403,18 +421,30 @@ class FilesystemBackend:
                 if m and os.path.isdir(os.path.join(path, n)):
                     yield m.group(1), os.path.join(path, n)
 
-        for y, yp in subdirs(self.root, "year"):
-            for mo, mp in subdirs(yp, "month"):
-                for d, dp in subdirs(mp, "day"):
-                    try:
-                        date = datetime.date(int(y), int(mo), int(d))
-                    except ValueError:
-                        continue
-                    for st, sp in subdirs(dp, "sourcetype"):
-                        for name in os.listdir(sp):
-                            full = os.path.join(sp, name)
-                            if FILE_RE.match(name) and os.path.isfile(full):
-                                yield st, date, name, os.path.getsize(full), full
+        def day_dirs():
+            if days is not None:
+                for date in sorted(set(days)):
+                    for mm in _variants(date.month):
+                        for dd in _variants(date.day):
+                            p = os.path.join(self.root, "year=%04d" % date.year,
+                                             "month=" + mm, "day=" + dd)
+                            if os.path.isdir(p):
+                                yield date, p
+                return
+            for y, yp in subdirs(self.root, "year"):
+                for mo, mp in subdirs(yp, "month"):
+                    for d, dp in subdirs(mp, "day"):
+                        try:
+                            yield datetime.date(int(y), int(mo), int(d)), dp
+                        except ValueError:
+                            continue
+
+        for date, dp in day_dirs():
+            for st, sp in subdirs(dp, "sourcetype"):
+                for name in os.listdir(sp):
+                    full = os.path.join(sp, name)
+                    if FILE_RE.match(name) and os.path.isfile(full):
+                        yield st, date, name, os.path.getsize(full), full
 
 
 class S3Backend:
@@ -427,6 +457,10 @@ class S3Backend:
         self.bucket = u.netloc
         self.prefix = u.path.strip("/")
         self.aws = aws_cli
+
+    @property
+    def location(self):
+        return "s3://%s/%s" % (self.bucket, self.prefix)
 
     def _key(self, *parts):
         return "/".join([p for p in (self.prefix,) + parts if p])
@@ -497,8 +531,23 @@ class S3Backend:
             with contextlib.suppress(OSError):
                 os.remove(tmp)
 
-    def walk(self):
-        for obj in self._list(self._key() + "/" if self.prefix else ""):
+    def walk(self, days=None):
+        """Yield (sourcetype, date, name, size, key) for every object, or only for the
+        objects of the given UTC days (one listing per day prefix)."""
+        if days is None:
+            objs = self._list(self._key() + "/" if self.prefix else "")
+        else:
+            objs, seen = [], set()
+            for date in sorted(set(days)):
+                for mm in _variants(date.month):
+                    for dd in _variants(date.day):
+                        prefix = self._key("year=%04d" % date.year, "month=" + mm,
+                                           "day=" + dd) + "/"
+                        for obj in self._list(prefix):
+                            if obj["Key"] not in seen:
+                                seen.add(obj["Key"])
+                                objs.append(obj)
+        for obj in objs:
             m = S3_KEY_RE.search(obj["Key"])
             if not m:
                 continue
@@ -525,80 +574,168 @@ def make_backend(cfg):
 # Catalog and registration
 # --------------------------------------------------------------------------- #
 
-def build_catalog(backend, agent, now=None, newest_per_sourcetype=0):
-    """Walk the store once and return (partitions, sources, served, newest).
+CATALOG_CACHE_VERSION = 1
 
-    partitions: one row per sourcetype + UTC day held by this agent, with the number of
-                writing forwarders. Key <agent>|<sourcetype>|<day>.
-    sources:    one row per writing forwarder (server GUID in the filename) held by this
-                agent. Key <agent>|<writer>.
-    served:     {writer GUID: [sourcetypes]}, used to decide which jobs target this agent.
-    newest:     {sourcetype: [(name, handle)]}, its newest_per_sourcetype newest files
-                (by the latest epoch in the filename), newest first. Used for sampling.
+
+def scan_store(backend, days=None):
+    """Walk the store (or only the given UTC days) once.
+
+    Returns (parts, candidates):
+    parts:      {"<sourcetype>|<day>": [files, bytes, earliest, latest,
+                                        {writer GUID: [files, bytes, earliest, latest]}]}
+    candidates: [[latest epoch, name, handle, sourcetype, day]] for every file, used to pick
+                the newest files per sourcetype for field sampling.
     """
-    now = int(now or time.time())
-    aguid = agent["guid"]
-    parts, guids_per_part, sources, newest = {}, {}, {}, {}
-    for st, date, name, size, handle in backend.walk():
+    parts, candidates = {}, []
+    for st, date, name, size, handle in backend.walk(days):
         lo, hi = parse_file_range(name)
-        if newest_per_sourcetype > 0:
-            top = newest.setdefault(st, [])
-            top.append((hi, name, handle))
-            if len(top) > newest_per_sourcetype:
-                top.sort(reverse=True)
-                del top[newest_per_sourcetype:]
-        guid = parse_writer_guid(name)
-        key = "%s|%s|%s" % (aguid, st, date.isoformat())
-        r = parts.setdefault(key, {
-            "_key": key, "agent": aguid, "sourcetype": st, "day": date.isoformat(),
-            "files": 0, "bytes": 0, "earliest": lo, "latest": hi,
-            "backend": backend.name, "updated_at": now,
-        })
-        r["files"] += 1
-        r["bytes"] += size
-        r["earliest"] = min(r["earliest"], lo)
-        r["latest"] = max(r["latest"], hi)
-        guids_per_part.setdefault(key, set()).add(guid)
+        day = date.isoformat()
+        candidates.append([hi, name, handle, st, day])
+        p = parts.setdefault("%s|%s" % (st, day), [0, 0, lo, hi, {}])
+        g = p[4].setdefault(parse_writer_guid(name), [0, 0, lo, hi])
+        for acc in (p, g):
+            acc[0] += 1
+            acc[1] += size
+            acc[2] = min(acc[2], lo)
+            acc[3] = max(acc[3], hi)
+    return parts, candidates
 
-        s = sources.setdefault(guid, {
-            "_key": "%s|%s" % (aguid, guid), "agent": aguid, "agent_host": agent["hostname"],
-            "guid": guid, "sourcetypes": set(), "days": set(),
-            "files": 0, "bytes": 0, "earliest": lo, "latest": hi,
-            "backend": backend.name, "updated_at": now,
-        })
-        s["sourcetypes"].add(st)
-        s["days"].add(date.isoformat())
-        s["files"] += 1
-        s["bytes"] += size
-        s["earliest"] = min(s["earliest"], lo)
-        s["latest"] = max(s["latest"], hi)
 
-    for key, r in parts.items():
-        r["forwarders"] = len(guids_per_part[key])
+def newest_files(candidates, n):
+    """Keep the n newest candidates per sourcetype, newest first."""
+    if n <= 0:
+        return {}
+    top = {}
+    for c in candidates:
+        top.setdefault(c[3], []).append(c)
+    return {st: sorted(cs, key=lambda c: (c[0], c[1]), reverse=True)[:n] for st, cs in top.items()}
+
+
+def catalog_rows(parts, agent, backend_name, now):
+    """parts (see scan_store) -> (catalog rows, source rows, served).
+
+    catalog rows: one per sourcetype + UTC day held by this agent, with the number of
+                  writing forwarders. Key <agent>|<sourcetype>|<day>.
+    source rows:  one per writing forwarder (server GUID in the filename) held by this
+                  agent. Key <agent>|<writer>.
+    served:       {writer GUID: [sourcetypes]}, used to decide which jobs target this agent.
+    """
+    aguid = agent["guid"]
+    rows, sources = [], {}
+    for pkey in sorted(parts):
+        st, day = pkey.rsplit("|", 1)
+        files, size, lo, hi, guids = parts[pkey]
+        rows.append({
+            "_key": "%s|%s" % (aguid, pkey), "agent": aguid, "sourcetype": st, "day": day,
+            "files": files, "bytes": size, "earliest": lo, "latest": hi,
+            "backend": backend_name, "forwarders": len(guids), "updated_at": now,
+        })
+        for guid, (gfiles, gsize, glo, ghi) in guids.items():
+            s = sources.setdefault(guid, {
+                "_key": "%s|%s" % (aguid, guid), "agent": aguid, "agent_host": agent["hostname"],
+                "guid": guid, "sourcetypes": set(), "days": set(),
+                "files": 0, "bytes": 0, "earliest": glo, "latest": ghi,
+                "backend": backend_name, "updated_at": now,
+            })
+            s["sourcetypes"].add(st)
+            s["days"].add(day)
+            s["files"] += gfiles
+            s["bytes"] += gsize
+            s["earliest"] = min(s["earliest"], glo)
+            s["latest"] = max(s["latest"], ghi)
     for s in sources.values():
         s["sourcetypes"] = sorted(s["sourcetypes"])
         s["days"] = len(s["days"])
     served = {g: s["sourcetypes"] for g, s in sources.items()}
-    newest = {st: [(n, h) for _, n, h in sorted(top, reverse=True)] for st, top in newest.items()}
-    return list(parts.values()), list(sources.values()), served, newest
+    return rows, list(sources.values()), served
 
 
-def publish_catalog(kv, backend, agent, newest_per_sourcetype=0):
-    """Publish this agent's rows and remove only this agent's stale rows.
-    Returns (served, totals, newest); see build_catalog."""
-    now = int(time.time())
-    parts, sources, served, newest = build_catalog(backend, agent, now, newest_per_sourcetype)
-    kv.batch_save(CATALOG, parts)
-    kv.delete(CATALOG, {"agent": agent["guid"], "updated_at": {"$lt": now}})
+def build_catalog(backend, agent, now=None, newest_per_sourcetype=0):
+    """Walk the whole store once and return (partitions, sources, served, newest).
+    See catalog_rows; newest is {sourcetype: [(name, handle)]}, its newest_per_sourcetype
+    newest files (by the latest epoch in the filename), newest first."""
+    now = int(now or time.time())
+    parts, candidates = scan_store(backend)
+    rows, sources, served = catalog_rows(parts, agent, backend.name, now)
+    newest = {st: [(c[1], c[2]) for c in cs]
+              for st, cs in newest_files(candidates, newest_per_sourcetype).items()}
+    return rows, sources, served, newest
+
+
+def _row_digest(row):
+    body = {k: v for k, v in row.items() if k != "updated_at"}
+    return hashlib.sha1(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def recent_days(now, n):
+    """The n newest UTC days up to now, newest first."""
+    today = datetime.datetime.fromtimestamp(now, datetime.timezone.utc).date()
+    return [today - datetime.timedelta(days=i) for i in range(n)]
+
+
+def publish_catalog(kv, backend, agent, newest_per_sourcetype=0, cache=None,
+                    recent=0, full_scan_interval=0, now=None):
+    """Publish this agent's catalog and remove only this agent's stale rows.
+
+    cache: what the previous publish found (load it from .catalog.json), or None.
+    With a cache of this agent and archive (backend.location) younger than
+    full_scan_interval and recent > 0, only the newest
+    `recent` UTC days are listed again, the rest comes from the cache, and only catalog
+    rows that changed are written or deleted. Otherwise the whole store is walked and
+    every row is written, which also repairs a collection that lost rows.
+
+    Returns (served, totals, newest, cache); newest as in build_catalog."""
+    now = int(now or time.time())
+    aguid = agent["guid"]
+    full = (not cache or cache.get("version") != CATALOG_CACHE_VERSION
+            or cache.get("agent") != aguid or cache.get("backend") != backend.name
+            or cache.get("location") != backend.location
+            or recent <= 0 or now - int(cache.get("full_at") or 0) >= full_scan_interval)
+    keep = max(newest_per_sourcetype, 0)
+    if full:
+        parts, candidates = scan_store(backend)
+        full_at = now
+    else:
+        days = recent_days(now, recent)
+        fresh = {d.isoformat() for d in days}
+        parts, candidates = scan_store(backend, days)
+        for pkey, p in cache["parts"].items():
+            if pkey.rsplit("|", 1)[1] not in fresh:
+                parts[pkey] = p
+        candidates += [c for cs in cache.get("newest", {}).values() for c in cs if c[4] not in fresh]
+        full_at = int(cache["full_at"])
+
+    rows, sources, served = catalog_rows(parts, agent, backend.name, now)
+    digests = {r["_key"]: _row_digest(r) for r in rows}
+    if full:
+        kv.batch_save(CATALOG, rows)
+        kv.delete(CATALOG, {"agent": aguid, "updated_at": {"$lt": now}})
+        written, removed = len(rows), None
+    else:
+        old = cache.get("published") or {}
+        changed = [r for r in rows if old.get(r["_key"]) != digests[r["_key"]]]
+        gone = sorted(k for k in old if k not in digests)
+        kv.batch_save(CATALOG, changed)
+        for key in gone:
+            kv.delete_key(CATALOG, key)
+        written, removed = len(changed), len(gone)
     kv.batch_save(SOURCES, sources)
-    kv.delete(SOURCES, {"agent": agent["guid"], "updated_at": {"$lt": now}})
-    log.info("action=catalog_published partitions=%d forwarders=%d", len(parts), len(sources))
+    kv.delete(SOURCES, {"agent": aguid, "updated_at": {"$lt": now}})
+    log.info("action=catalog_published scan=%s partitions=%d written=%d removed=%s forwarders=%d",
+             "full" if full else "recent", len(rows), written,
+             "stale" if removed is None else removed, len(sources))
+
+    newest_c = newest_files(candidates, keep)
+    newest = {st: [(c[1], c[2]) for c in cs] for st, cs in newest_c.items()}
+    new_cache = {"version": CATALOG_CACHE_VERSION, "agent": aguid, "backend": backend.name,
+                 "location": backend.location,
+                 "full_at": full_at, "parts": parts, "newest": newest_c, "published": digests}
     return served, {
         "forwarders": len(sources),
         "files": sum(s["files"] for s in sources),
         "bytes": sum(s["bytes"] for s in sources),
         "sourcetypes": sorted({st for s in sources for st in s["sourcetypes"]}),
-    }, newest
+    }, newest, new_cache
 
 
 # --------------------------------------------------------------------------- #
@@ -1139,7 +1276,12 @@ def run_once(cfg, kv, backend, agent, state, sink_factory, now=None):
     if now - state.get("catalog_at", 0) >= cfg.getint("agent", "catalog_interval") or "served" not in state:
         try:
             sample_files = cfg.getint("agent", "sample_files")
-            served, totals, newest = publish_catalog(kv, backend, agent, sample_files)
+            cache_path = os.path.join(cfg.get("agent", "work_dir"), ".catalog.json")
+            served, totals, newest, cache = publish_catalog(
+                kv, backend, agent, sample_files, load_state(cache_path) or None,
+                cfg.getint("agent", "catalog_recent_days"),
+                cfg.getint("agent", "catalog_full_scan_interval"), now)
+            save_state(cache_path, cache)
             state.update(catalog_at=int(now), served=served)
             heartbeat(kv, cfg, agent, totals)
             state["heartbeat_at"] = int(now)
